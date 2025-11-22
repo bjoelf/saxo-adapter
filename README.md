@@ -1,23 +1,28 @@
 # Saxo Bank Adapter for Go
 
-**Status**: 🚧 **Session 1 Complete** - Code copied from pivot-web2, ready for Session 2
+Saxo Bank OpenAPI integration providing OAuth2 authentication, REST API client, and WebSocket streaming for Go applications.
 
-## Overview
+## Status
 
-This repository will contain the Saxo Bank OpenAPI adapter extracted from the pivot-web2 trading platform. The adapter provides OAuth2 authentication, RESTful API client, and WebSocket streaming functionality for Saxo Bank's trading API.
+🚧 **Under Development** - Session 2 Complete
 
-## Current State
+**Current State**: Repository structure initialized, code copied from pivot-web2. Next steps will update imports to make this a standalone package.
 
-✅ **Session 1 Complete** (Nov 22, 2025)
-- All adapter code copied from pivot-web2 (6,317 lines)
-- Directory structure preserved
-- Ready for Go module initialization
+## Features
 
-⏳ **Next: Session 2** - Repository Structure Creation
-- Initialize Go module
-- Create LICENSE (MIT)
-- Set up .gitignore
-- Create proper README
+- OAuth2 authentication flow with automatic token refresh
+- RESTful API client for Saxo Bank OpenAPI
+- WebSocket streaming for real-time price feeds
+- Order placement and management
+- Position and portfolio tracking
+- Instrument data enrichment
+- Comprehensive test coverage with mock servers
+
+## Installation
+
+```bash
+go get github.com/bjoelf/saxo-adapter@latest
+```
 
 ## Directory Structure
 
@@ -36,38 +41,26 @@ saxo-adapter/
 │       ├── subscription_manager.go
 │       ├── message_handler.go
 │       └── ...
-└── docs/                # Documentation (to be created)
+└── docs/                # Documentation
 ```
 
-## Dependencies (Current)
+## Dependencies
 
-**Note**: These imports currently reference pivot-web2 and will be updated in Sessions 3-4:
-
-- `github.com/bjoelf/pivot-web2/internal/domain` → Will become local types
-- `github.com/bjoelf/pivot-web2/internal/ports` → Will become local interfaces
-- `github.com/bjoelf/pivot-web2/internal/adapters/storage` → Will be abstracted
-
-**External packages** (will remain):
+**External packages**:
 - `golang.org/x/oauth2` - OAuth2 authentication
 - `github.com/gorilla/websocket` - WebSocket client
-- `github.com/stretchr/testify` - Testing
+- `github.com/stretchr/testify` - Testing framework
 
-## Features (Planned)
+**Note**: Currently contains references to `pivot-web2` internal packages which will be replaced with local types in upcoming sessions.
 
-Once extraction is complete, this adapter will provide:
+## Usage
 
-- ✅ OAuth2 authentication flow with automatic token refresh
-- ✅ RESTful API client for Saxo Bank OpenAPI
-- ✅ WebSocket streaming for real-time price feeds
-- ✅ Order placement and management
-- ✅ Position and portfolio tracking
-- ✅ Instrument data enrichment
-- ✅ Comprehensive test coverage with mock servers
+Documentation will be added as the extraction progresses. This adapter is being extracted from a private trading platform to become a reusable public package.
 
 ## Extraction Progress
 
 - [x] **Session 1**: Analyze dependencies & copy code ✅
-- [ ] **Session 2**: Create repository structure
+- [x] **Session 2**: Create repository structure ✅
 - [ ] **Session 3**: Extract core files & update imports
 - [ ] **Session 4**: Create adapter factory & README
 - [ ] **Session 5**: Update pivot-web2 to use public adapter
@@ -75,10 +68,9 @@ Once extraction is complete, this adapter will provide:
 
 ## License
 
-To be added in Session 2 (MIT License planned)
+MIT License - See [LICENSE](LICENSE) file
 
 ## References
 
-- Implementation guide: `pivot-web2/docs/workflows/refactoring-best-practice/AI_IMPLEMENTATION_GUIDE.md`
-- Analysis document: `pivot-web2/docs/saxo-extraction-analysis.md`
-- Session log: `SESSION_1_COMPLETE.md`
+- Implementation guide: [AI_IMPLEMENTATION_GUIDE.md](https://github.com/bjoelf/pivot-web2/blob/main/docs/workflows/refactoring-best-practice/AI_IMPLEMENTATION_GUIDE.md)
+- Analysis document: [saxo-extraction-analysis.md](https://github.com/bjoelf/pivot-web2/blob/main/docs/workflows/refactoring-best-practice/saxo-extraction-analysis.md)
