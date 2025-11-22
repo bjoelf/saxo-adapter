@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../pivot-web2"
+		}
+	],
+	"settings": {
+		"go.toolsManagement.checkForUpdates": "local",
+		"files.associations": {
+			"*.gohtml": "html"
+		},
+		"makefile.configureOnOpen": false
+	}
+}
