@@ -12,8 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bjoelf/pivot-web2/internal/domain"
-	"github.com/bjoelf/pivot-web2/internal/ports"
+	saxo "github.com/bjoelf/saxo-adapter/adapter"
 	"github.com/gorilla/websocket"
 )
 
@@ -23,7 +22,7 @@ type SaxoWebSocketClient struct {
 	conn         *websocket.Conn
 	apiBaseURL   string // For HTTP API calls (subscriptions, etc.) - https://gateway.saxobank.com/sim/openapi
 	websocketURL string // For WebSocket connection - https://sim-streaming.saxobank.com/sim/oapi
-	authClient   ports.AuthClient
+	authClient   saxo.AuthClient
 	logger       *log.Logger
 
 	// Component managers - following clean architecture separation
@@ -36,9 +35,9 @@ type SaxoWebSocketClient struct {
 	callbackHandlersMu sync.RWMutex
 
 	// Channel coordination - feeds into strategy_manager channels
-	priceUpdateChan     chan ports.PriceUpdate
-	orderUpdateChan     chan ports.OrderUpdate
-	portfolioUpdateChan chan ports.PortfolioUpdate
+	priceUpdateChan     chan saxo.PriceUpdate
+	orderUpdateChan     chan saxo.OrderUpdate
+	portfolioUpdateChan chan saxo.PortfolioUpdate
 
 	// NEW: Separated reader/processor architecture channels (CRITICAL FIX)
 	// Following legacy broker_websocket.go breakthrough pattern
@@ -91,7 +90,7 @@ type SaxoWebSocketClient struct {
 // NewSaxoWebSocketClient creates WebSocket client following legacy broker_websocket.go patterns
 // apiBaseURL: For HTTP API calls (e.g., https://gateway.saxobank.com/sim/openapi)
 // websocketURL: For WebSocket connection (e.g., https://sim-streaming.saxobank.com/sim/oapi)
-func NewSaxoWebSocketClient(authClient ports.AuthClient, apiBaseURL string, websocketURL string, logger *log.Logger) *SaxoWebSocketClient {
+func NewSaxoWebSocketClient(authClient saxo.AuthClient, apiBaseURL string, websocketURL string, logger *log.Logger) *SaxoWebSocketClient {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	client := &SaxoWebSocketClient{
@@ -101,9 +100,9 @@ func NewSaxoWebSocketClient(authClient ports.AuthClient, apiBaseURL string, webs
 		logger:                logger,
 		callbackHandlers:      make(map[string]func(payload []byte)),
 		lastMessageTimestamps: make(map[string]time.Time),
-		priceUpdateChan:       make(chan ports.PriceUpdate, 100),
-		orderUpdateChan:       make(chan ports.OrderUpdate, 100),
-		portfolioUpdateChan:   make(chan ports.PortfolioUpdate, 100),
+		priceUpdateChan:       make(chan saxo.PriceUpdate, 100),
+		orderUpdateChan:       make(chan saxo.OrderUpdate, 100),
+		portfolioUpdateChan:   make(chan saxo.PortfolioUpdate, 100),
 		// NEW: Initialize separated reader/processor channels (CRITICAL FIX)
 		// Following legacy broker_websocket.go breakthrough pattern
 		incomingMessages:     make(chan websocketMessage, 100), // Buffer 100 messages - prevents blocking
@@ -217,14 +216,14 @@ func (ws *SaxoWebSocketClient) SubscribeToPortfolio(ctx context.Context) error {
 }
 
 // Channel accessor methods for strategy_manager integration
-func (ws *SaxoWebSocketClient) GetPriceUpdateChannel() <-chan ports.PriceUpdate {
+func (ws *SaxoWebSocketClient) GetPriceUpdateChannel() <-chan saxo.PriceUpdate {
 	return ws.priceUpdateChan
 }
 
 // RegisterInstruments builds dynamic UIC<->Ticker mapping from instrument metadata
 // CRITICAL: fx.json is the single source of truth - no hardcoded UICs allowed
 // This must be called before subscribing to prices
-func (ws *SaxoWebSocketClient) RegisterInstruments(instruments []*domain.Instrument) {
+func (ws *SaxoWebSocketClient) RegisterInstruments(instruments []*saxo.Instrument) {
 	ws.mappingMu.Lock()
 	defer ws.mappingMu.Unlock()
 
@@ -243,11 +242,11 @@ func (ws *SaxoWebSocketClient) RegisterInstruments(instruments []*domain.Instrum
 	}
 }
 
-func (ws *SaxoWebSocketClient) GetOrderUpdateChannel() <-chan ports.OrderUpdate {
+func (ws *SaxoWebSocketClient) GetOrderUpdateChannel() <-chan saxo.OrderUpdate {
 	return ws.orderUpdateChan
 }
 
-func (ws *SaxoWebSocketClient) GetPortfolioUpdateChannel() <-chan ports.PortfolioUpdate {
+func (ws *SaxoWebSocketClient) GetPortfolioUpdateChannel() <-chan saxo.PortfolioUpdate {
 	return ws.portfolioUpdateChan
 }
 

@@ -383,3 +383,121 @@ type SaxoClosedPosition struct {
 	} `json:"DisplayAndFormat"`
 	NetPositionID string `json:"NetPositionId"`
 }
+
+// SaxoAccounts represents account information response
+type SaxoAccounts struct {
+	Data []SaxoAccountInfo `json:"Data"`
+}
+
+// SaxoTradingScheduleParams represents parameters for trading schedule request
+type SaxoTradingScheduleParams struct {
+	Uic       int    `json:"Uic"`
+	AssetType string `json:"AssetType"`
+}
+
+// SaxoTradingSchedule represents trading schedule response from Saxo
+type SaxoTradingSchedule struct {
+	Phases   []SaxoTradingPhase `json:"Phases"`
+	Sessions []SaxoTradingPhase `json:"Sessions"` // Alias for compatibility
+}
+
+// SaxoTradingPhase represents a trading phase (open/close times)
+type SaxoTradingPhase struct {
+	StartTime time.Time `json:"StartTime"`
+	EndTime   time.Time `json:"EndTime"`
+	State     string    `json:"State"` // "Open", "Closed", etc.
+}
+
+// SaxoPortfolioBalance represents complete portfolio balance from /port/v1/balances/me
+// This is the full Saxo API response structure
+type SaxoPortfolioBalance = SaxoBalance // Alias to SaxoBalance for compatibility
+
+// TokenStorage defines interface for token persistence
+type TokenStorage interface {
+	SaveToken(filename string, token *TokenInfo) error
+	LoadToken(filename string) (*TokenInfo, error)
+	DeleteToken(filename string) error
+}
+
+// TokenInfo represents stored token information
+type TokenInfo struct {
+	Provider      string    `json:"provider"`
+	AccessToken   string    `json:"access_token"`
+	RefreshToken  string    `json:"refresh_token"`
+	TokenType     string    `json:"token_type"`
+	Expiry        time.Time `json:"expiry"`
+	RefreshExpiry time.Time `json:"refresh_expiry"` // When refresh token expires
+}
+
+// SaxoSearchParams represents parameters for instrument search
+type SaxoSearchParams struct {
+	AssetType  string
+	ExchangeId string
+	Keywords   string
+}
+
+// SaxoInstrumentResponse represents response from instrument search
+type SaxoInstrumentResponse struct {
+	Instruments []SaxoInstrument
+}
+
+// SaxoInstrument represents basic instrument information from Saxo API
+type SaxoInstrument struct {
+	Identifier   int
+	Symbol       string
+	Description  string
+	AssetType    string
+	ExchangeID   string
+	CurrencyCode string
+}
+
+// SaxoInstrumentDetailsResponse represents detailed instrument information
+type SaxoInstrumentDetailsResponse struct {
+	Data []SaxoInstrumentDetail
+}
+
+// SaxoInstrumentDetail represents detailed instrument data from Saxo API
+type SaxoInstrumentDetail struct {
+	Uic                   int
+	AssetType             string
+	Description           string
+	Symbol                string
+	Format                SaxoInstrumentFormat
+	TickSize              float32
+	Decimals              int
+	PriceToContractFactor float64
+}
+
+// SaxoInstrumentFormat represents formatting information for an instrument
+type SaxoInstrumentFormat struct {
+	Decimals          int
+	OrderDecimals     int
+	ModernFractions   bool
+	NumeratorDecimals int
+}
+
+// SaxoPriceParams represents parameters for price data request
+type SaxoPriceParams struct {
+	AssetType   string
+	Uic         int
+	FieldGroups string
+}
+
+// SaxoPriceData represents price data from Saxo API
+type SaxoPriceData struct {
+	Uic                    int
+	AssetType              string
+	InstrumentPriceDetails SaxoInstrumentPrice
+}
+
+// SaxoInstrumentPrice represents detailed price information
+type SaxoInstrumentPrice struct {
+	Quote SaxoPriceQuote
+}
+
+// SaxoPriceQuote represents price quote details
+type SaxoPriceQuote struct {
+	Bid float64
+	Ask float64
+	Mid float64
+}

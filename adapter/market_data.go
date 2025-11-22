@@ -8,9 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/bjoelf/pivot-web2/internal/domain"
-	"github.com/bjoelf/pivot-web2/internal/ports"
 )
 
 // tomorrowMidnightRFC3339 returns tomorrow's midnight time in RFC3339 format
@@ -75,11 +72,11 @@ func getDecimalsFromTickSize(tickSize float64) int {
 
 // GetInstrumentPrice fetches current market price using enriched instrument data
 // Following legacy broker/broker_http.go patterns for price retrieval
-func (sbc *SaxoBrokerClient) GetInstrumentPrice(ctx context.Context, instrument domain.Instrument) (*ports.PriceData, error) {
+func (sbc *SaxoBrokerClient) GetInstrumentPrice(ctx context.Context, instrument Instrument) (*PriceData, error) {
 	sbc.logger.Printf("GetInstrumentPrice: Fetching price for %s", instrument.Ticker)
 
 	// Validate enriched instrument data
-	if instrument.Identifier == 0 {
+	if instrument.Uic == 0 {
 		return nil, fmt.Errorf("instrument %s is not enriched - Identifier (UIC) is missing. Run instrument enrichment first", instrument.Ticker)
 	}
 	if instrument.AssetType == "" {
@@ -99,7 +96,7 @@ func (sbc *SaxoBrokerClient) GetInstrumentPrice(ctx context.Context, instrument 
 
 	// Build request URL using enriched UIC and AssetType
 	requestURL := fmt.Sprintf("%s/chart/v1/charts?Uic=%d&AssetType=%s&Horizon=60",
-		sbc.baseURL, instrument.Identifier, instrument.AssetType)
+		sbc.baseURL, instrument.Uic, instrument.AssetType)
 
 	// Create HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "GET", requestURL, nil)
@@ -140,7 +137,7 @@ func (sbc *SaxoBrokerClient) GetInstrumentPrice(ctx context.Context, instrument 
 
 // GetAccountInfo fetches current account information
 // Following legacy portfolio balance patterns
-func (sbc *SaxoBrokerClient) GetAccountInfo(ctx context.Context) (*ports.AccountInfo, error) {
+func (sbc *SaxoBrokerClient) GetAccountInfo(ctx context.Context) (*AccountInfo, error) {
 	sbc.logger.Printf("GetAccountInfo: Fetching account information")
 
 	// Check authentication
@@ -196,11 +193,11 @@ func (sbc *SaxoBrokerClient) GetAccountInfo(ctx context.Context) (*ports.Account
 
 // GetHistoricalData fetches historical OHLC data from Saxo Bank using enriched instrument data
 // Following legacy SinglePivotHistory caching pattern: cache for 1 hour per instrument
-func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument domain.Instrument, days int) ([]ports.HistoricalDataPoint, error) {
+func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument Instrument, days int) ([]HistoricalDataPoint, error) {
 	sbc.logger.Printf("GetHistoricalData: Fetching %d days of data for %s", days, instrument.Ticker)
 
 	// Create cache key (identifier + days to ensure cache matches request)
-	cacheKey := fmt.Sprintf("%d_%d", instrument.Identifier, days)
+	cacheKey := fmt.Sprintf("%d_%d", instrument.Uic, days)
 
 	// Check cache first (following legacy findCachedOHLC pattern)
 	sbc.cacheMutex.RLock()
@@ -218,7 +215,7 @@ func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument d
 	sbc.logger.Printf("History from request: %s (cache miss or expired)", instrument.Ticker)
 
 	// Validate enriched instrument data
-	if instrument.Identifier == 0 {
+	if instrument.Uic == 0 {
 		return nil, fmt.Errorf("instrument %s is not enriched - Identifier (UIC) is missing. Run instrument enrichment first", instrument.Ticker)
 	}
 	if instrument.AssetType == "" {
@@ -240,7 +237,7 @@ func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument d
 	// Following legacy broker/broker_http.go GetSaxoHistoricBars pattern
 	// Using daily horizon (1440 minutes = 1 day), Mode=UpTo, and FieldGroups=Data
 	requestURL := fmt.Sprintf("%s/chart/v3/charts?AssetType=%s&FieldGroups=Data&Count=%d&Horizon=1440&Mode=UpTo&Time=%s&Uic=%d",
-		sbc.baseURL, instrument.AssetType, days, tomorrowMidnightRFC3339(), instrument.Identifier)
+		sbc.baseURL, instrument.AssetType, days, tomorrowMidnightRFC3339(), instrument.Uic)
 
 	sbc.logger.Printf("Saxo API Request: %s", requestURL)
 
@@ -285,7 +282,7 @@ func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument d
 				instrument.Ticker, first.Time, first.OpenBid, first.OpenAsk, first.HighBid, first.HighAsk)
 		}
 	} // Convert to standardized format based on asset type
-	historicalData := make([]ports.HistoricalDataPoint, len(saxoResponse.Data))
+	historicalData := make([]HistoricalDataPoint, len(saxoResponse.Data))
 	for i, chartPoint := range saxoResponse.Data {
 		var open, high, low, close float64
 
@@ -321,7 +318,7 @@ func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument d
 			date = time.Now().AddDate(0, 0, -days+i) // Fallback
 		}
 
-		historicalData[i] = ports.HistoricalDataPoint{
+		historicalData[i] = HistoricalDataPoint{
 			Ticker: instrument.Ticker,
 			Date:   date,
 			Open:   open,
@@ -347,13 +344,13 @@ func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument d
 
 // Subscribe sets up real-time price subscriptions (placeholder implementation)
 // TODO: Implement actual WebSocket-based price streaming
-func (sbc *SaxoBrokerClient) Subscribe(ctx context.Context, instruments []string) (<-chan ports.PriceUpdate, error) {
+func (sbc *SaxoBrokerClient) Subscribe(ctx context.Context, instruments []string) (<-chan PriceUpdate, error) {
 	sbc.logger.Printf("Subscribe: Setting up price subscriptions for %d instruments", len(instruments))
 
 	// For now, return a placeholder channel
 	// In a full implementation, this would establish WebSocket connections
 	// and stream real-time price updates
-	updatesChan := make(chan ports.PriceUpdate, 100)
+	updatesChan := make(chan PriceUpdate, 100)
 
 	// TODO: Replace with actual WebSocket implementation
 	// This would connect to Saxo's streaming API and forward price updates

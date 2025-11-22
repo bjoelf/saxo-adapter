@@ -11,13 +11,10 @@ import (
 	"os"
 	"sync"
 	"time"
-
-	"github.com/bjoelf/pivot-web2/internal/domain"
-	"github.com/bjoelf/pivot-web2/internal/ports"
 )
 
 // CreateBrokerServices creates Saxo auth and broker clients with environment configuration
-func CreateBrokerServices(logger *log.Logger) (ports.AuthClient, ports.BrokerClient, error) {
+func CreateBrokerServices(logger *log.Logger) (AuthClient, BrokerClient, error) {
 	// Create auth client with environment configuration
 	authClient, err := CreateSaxoAuthClient(logger)
 	if err != nil {
@@ -44,14 +41,14 @@ func CreateBrokerServices(logger *log.Logger) (ports.AuthClient, ports.BrokerCli
 
 // cachedHistoricalData represents cached market data for an instrument
 type cachedHistoricalData struct {
-	Data      []ports.HistoricalDataPoint
+	Data      []HistoricalDataPoint
 	Timestamp time.Time
 }
 
-// SaxoBrokerClient implements ports.BrokerClient interface
+// SaxoBrokerClient implements BrokerClient interface
 // All Saxo-specific details are handled internally
 type SaxoBrokerClient struct {
-	authClient ports.AuthClient
+	authClient AuthClient
 	httpClient *http.Client
 	baseURL    string
 	logger     *log.Logger
@@ -63,7 +60,7 @@ type SaxoBrokerClient struct {
 }
 
 // NewSaxoBrokerClient creates a new Saxo broker client
-func NewSaxoBrokerClient(authClient ports.AuthClient, baseURL string, logger *log.Logger) *SaxoBrokerClient {
+func NewSaxoBrokerClient(authClient AuthClient, baseURL string, logger *log.Logger) *SaxoBrokerClient {
 	return &SaxoBrokerClient{
 		authClient:   authClient,
 		baseURL:      baseURL,
@@ -73,9 +70,9 @@ func NewSaxoBrokerClient(authClient ports.AuthClient, baseURL string, logger *lo
 	}
 }
 
-// PlaceOrder implements ports.BrokerClient.PlaceOrder
+// PlaceOrder implements BrokerClient.PlaceOrder
 // Converts generic OrderRequest to Saxo-specific format internally
-func (sbc *SaxoBrokerClient) PlaceOrder(ctx context.Context, req ports.OrderRequest) (*ports.OrderResponse, error) {
+func (sbc *SaxoBrokerClient) PlaceOrder(ctx context.Context, req OrderRequest) (*OrderResponse, error) {
 	sbc.logger.Printf("PlaceOrder: Processing order for %s", req.Instrument.Ticker)
 
 	// Check authentication
@@ -131,7 +128,7 @@ func (sbc *SaxoBrokerClient) PlaceOrder(ctx context.Context, req ports.OrderRequ
 	return genericResp, nil
 }
 
-// DeleteOrder implements ports.BrokerClient.DeleteOrder
+// DeleteOrder implements BrokerClient.DeleteOrder
 func (sbc *SaxoBrokerClient) DeleteOrder(ctx context.Context, orderID string) error {
 	sbc.logger.Printf("DeleteOrder: Cancelling order %s", orderID)
 
@@ -164,9 +161,9 @@ func (sbc *SaxoBrokerClient) DeleteOrder(ctx context.Context, orderID string) er
 	return nil
 }
 
-// CancelOrder implements ports.BrokerClient.CancelOrder
+// CancelOrder implements BrokerClient.CancelOrder
 // Uses Saxo API: DELETE /trade/v2/orders/{OrderIds}?AccountKey={AccountKey}
-func (sbc *SaxoBrokerClient) CancelOrder(ctx context.Context, req ports.CancelOrderRequest) error {
+func (sbc *SaxoBrokerClient) CancelOrder(ctx context.Context, req CancelOrderRequest) error {
 	sbc.logger.Printf("CancelOrder: Cancelling order %s for account %s", req.OrderID, req.AccountKey)
 
 	// Check authentication
@@ -202,7 +199,7 @@ func (sbc *SaxoBrokerClient) CancelOrder(ctx context.Context, req ports.CancelOr
 	return sbc.handleErrorResponse(resp)
 }
 
-// ClosePosition implements ports.BrokerClient.ClosePosition
+// ClosePosition implements BrokerClient.ClosePosition
 // Closes position by placing an opposite market order
 //
 // For accounts with Real-time (Intraday) netting: Opposing positions are netted immediately
@@ -211,7 +208,7 @@ func (sbc *SaxoBrokerClient) CancelOrder(ctx context.Context, req ports.CancelOr
 // Note: Real-time netting does NOT support relating orders to positions.
 // Therefore we use a simple opposite market order which works for both netting modes.
 // Reference: https://www.developer.saxo/openapi/learn/fifo-real-time-netting
-func (sbc *SaxoBrokerClient) ClosePosition(ctx context.Context, req ports.ClosePositionRequest) (*ports.OrderResponse, error) {
+func (sbc *SaxoBrokerClient) ClosePosition(ctx context.Context, req ClosePositionRequest) (*OrderResponse, error) {
 	sbc.logger.Printf("ClosePosition: Closing position %s (NetPositionID: %s) for account %s",
 		req.PositionID, req.NetPositionID, req.AccountKey)
 
@@ -291,8 +288,8 @@ func (sbc *SaxoBrokerClient) ClosePosition(ctx context.Context, req ports.CloseP
 	return sbc.convertFromSaxoResponse(saxoResp), nil
 }
 
-// ModifyOrder implements ports.BrokerClient.ModifyOrder
-func (sbc *SaxoBrokerClient) ModifyOrder(ctx context.Context, req ports.OrderModificationRequest) (*ports.OrderResponse, error) {
+// ModifyOrder implements BrokerClient.ModifyOrder
+func (sbc *SaxoBrokerClient) ModifyOrder(ctx context.Context, req OrderModificationRequest) (*OrderResponse, error) {
 	sbc.logger.Printf("ModifyOrder: Modifying order %s to price %s", req.OrderID, req.OrderPrice)
 
 	// Check authentication
@@ -352,15 +349,15 @@ func (sbc *SaxoBrokerClient) ModifyOrder(ctx context.Context, req ports.OrderMod
 	}
 
 	sbc.logger.Printf("Order modified successfully: %s", req.OrderID)
-	return &ports.OrderResponse{
+	return &OrderResponse{
 		OrderID:   req.OrderID,
 		Status:    "Modified",
 		Timestamp: time.Now().Format(time.RFC3339),
 	}, nil
 }
 
-// GetOrderStatus implements ports.BrokerClient.GetOrderStatus
-func (sbc *SaxoBrokerClient) GetOrderStatus(ctx context.Context, orderID string) (*ports.OrderStatus, error) {
+// GetOrderStatus implements BrokerClient.GetOrderStatus
+func (sbc *SaxoBrokerClient) GetOrderStatus(ctx context.Context, orderID string) (*OrderStatus, error) {
 	sbc.logger.Printf("GetOrderStatus: Checking order %s", orderID)
 
 	// Check authentication
@@ -403,7 +400,7 @@ func (sbc *SaxoBrokerClient) GetOrderStatus(ctx context.Context, orderID string)
 
 // GetOpenOrders retrieves all open orders from Saxo API
 // Used by recovery system to match live orders to signals
-func (sbc *SaxoBrokerClient) GetOpenOrders(ctx context.Context) ([]domain.LiveOrder, error) {
+func (sbc *SaxoBrokerClient) GetOpenOrders(ctx context.Context) ([]LiveOrder, error) {
 	// Saxo API endpoint: GET /port/v1/orders/me
 	url := fmt.Sprintf("%s/port/v1/orders/me", sbc.baseURL)
 
@@ -431,7 +428,7 @@ func (sbc *SaxoBrokerClient) GetOpenOrders(ctx context.Context) ([]domain.LiveOr
 	}
 
 	// Convert Saxo orders to domain LiveOrders
-	liveOrders := make([]domain.LiveOrder, 0, len(saxoResponse.Data))
+	liveOrders := make([]LiveOrder, 0, len(saxoResponse.Data))
 	for _, saxoOrder := range saxoResponse.Data {
 		liveOrder := sbc.convertFromSaxoOpenOrder(saxoOrder)
 		liveOrders = append(liveOrders, liveOrder)
@@ -505,12 +502,12 @@ func (sbc *SaxoBrokerClient) GetClosedPositions(ctx context.Context) (*SaxoClose
 	return &saxoResponse, nil
 }
 
-// GetAccounts implements ports.BrokerClient.GetAccounts
+// GetAccounts implements BrokerClient.GetAccounts
 // TODO: Implement actual Saxo accounts API call
-func (sbc *SaxoBrokerClient) GetAccounts(force bool) (*ports.SaxoAccounts, error) {
+func (sbc *SaxoBrokerClient) GetAccounts(force bool) (*SaxoAccounts, error) {
 	sbc.logger.Printf("GetAccounts: Called with force=%v - TODO: implement", force)
 	// Placeholder implementation - needs actual Saxo API integration
-	return &ports.SaxoAccounts{}, fmt.Errorf("GetAccounts not yet implemented")
+	return &SaxoAccounts{}, fmt.Errorf("GetAccounts not yet implemented")
 }
 
 // GetAccountBalance retrieves account balance from Saxo API
@@ -611,17 +608,17 @@ func (sbc *SaxoBrokerClient) GetClientInfo(ctx context.Context) (*SaxoClientInfo
 	return &clientInfo, nil
 }
 
-// GetBalance implements ports.BrokerClient.GetBalance (legacy signature)
+// GetBalance implements BrokerClient.GetBalance (legacy signature)
 // TODO: Implement actual Saxo balance API call
-func (sbc *SaxoBrokerClient) GetBalance(force bool) (*ports.SaxoPortfolioBalance, error) {
+func (sbc *SaxoBrokerClient) GetBalance(force bool) (*SaxoPortfolioBalance, error) {
 	sbc.logger.Printf("GetBalance: Called with force=%v - TODO: implement", force)
 	// Placeholder implementation - needs actual Saxo API integration
-	return &ports.SaxoPortfolioBalance{}, fmt.Errorf("GetBalance not yet implemented")
+	return &SaxoPortfolioBalance{}, fmt.Errorf("GetBalance not yet implemented")
 }
 
 // Private conversion methods - handle Saxo-specific format internally
 // TODO: cleanup this is final order conversion logic. Remove all other conversion code.
-func (sbc *SaxoBrokerClient) convertToSaxoOrder(req ports.OrderRequest) (SaxoOrderRequest, error) {
+func (sbc *SaxoBrokerClient) convertToSaxoOrder(req OrderRequest) (SaxoOrderRequest, error) {
 	saxoReq := SaxoOrderRequest{
 		BuySell:   req.Side,                 // "Buy" or "Sell"
 		Amount:    float64(req.Size),        // Order size as float64
@@ -654,8 +651,8 @@ func (sbc *SaxoBrokerClient) convertToSaxoOrder(req ports.OrderRequest) (SaxoOrd
 	return saxoReq, nil
 }
 
-func (sbc *SaxoBrokerClient) convertFromSaxoResponse(saxoResp SaxoOrderResponse) *ports.OrderResponse {
-	return &ports.OrderResponse{
+func (sbc *SaxoBrokerClient) convertFromSaxoResponse(saxoResp SaxoOrderResponse) *OrderResponse {
+	return &OrderResponse{
 		OrderID: saxoResp.OrderId,
 		Status:  saxoResp.Status,
 		//Message:   saxoResp.Message,
@@ -663,8 +660,8 @@ func (sbc *SaxoBrokerClient) convertFromSaxoResponse(saxoResp SaxoOrderResponse)
 	}
 }
 
-func (sbc *SaxoBrokerClient) convertFromSaxoStatus(saxoStatus SaxoOrderStatus) *ports.OrderStatus {
-	return &ports.OrderStatus{
+func (sbc *SaxoBrokerClient) convertFromSaxoStatus(saxoStatus SaxoOrderStatus) *OrderStatus {
+	return &OrderStatus{
 		OrderID: saxoStatus.OrderId,
 		Status:  saxoStatus.Status,
 		//FilledQuantity:    saxoStatus.FilledAmount,
@@ -675,7 +672,7 @@ func (sbc *SaxoBrokerClient) convertFromSaxoStatus(saxoStatus SaxoOrderStatus) *
 }
 
 // convertFromSaxoOpenOrder converts Saxo open order to domain LiveOrder
-func (sbc *SaxoBrokerClient) convertFromSaxoOpenOrder(saxoOrder SaxoOpenOrder) domain.LiveOrder {
+func (sbc *SaxoBrokerClient) convertFromSaxoOpenOrder(saxoOrder SaxoOpenOrder) LiveOrder {
 	// Parse order time
 	orderTime, err := time.Parse(time.RFC3339, saxoOrder.OrderTime)
 	if err != nil {
@@ -684,9 +681,9 @@ func (sbc *SaxoBrokerClient) convertFromSaxoOpenOrder(saxoOrder SaxoOpenOrder) d
 	}
 
 	// Convert related orders
-	relatedOrders := make([]domain.RelatedOrder, len(saxoOrder.RelatedOpenOrders))
+	relatedOrders := make([]RelatedOrder, len(saxoOrder.RelatedOpenOrders))
 	for i, related := range saxoOrder.RelatedOpenOrders {
-		relatedOrders[i] = domain.RelatedOrder{
+		relatedOrders[i] = RelatedOrder{
 			OrderID:       related.OrderID,
 			OpenOrderType: related.OpenOrderType,
 			OrderPrice:    related.OrderPrice,
@@ -694,7 +691,7 @@ func (sbc *SaxoBrokerClient) convertFromSaxoOpenOrder(saxoOrder SaxoOpenOrder) d
 		}
 	}
 
-	return domain.LiveOrder{
+	return LiveOrder{
 		OrderID:        saxoOrder.OrderID,
 		Uic:            saxoOrder.Uic,
 		Ticker:         saxoOrder.DisplayAndFormat.Symbol,
@@ -746,47 +743,47 @@ func (sbc *SaxoBrokerClient) handleErrorResponse(resp *http.Response) error {
 // GetTradingSchedule retrieves trading schedule from Saxo API
 // Following legacy broker/broker_http.go GetSaxoTradingSchedule pattern
 // Endpoint: /ref/v1/instruments/tradingschedule/{UIC}/{AssetType}
-func (sbc *SaxoBrokerClient) GetTradingSchedule(params ports.SaxoTradingScheduleParams) (ports.SaxoTradingSchedule, error) {
-	endpoint := fmt.Sprintf("/ref/v1/instruments/tradingschedule/%s/%s", params.Uic, params.AssetType)
+func (sbc *SaxoBrokerClient) GetTradingSchedule(params SaxoTradingScheduleParams) (SaxoTradingSchedule, error) {
+	endpoint := fmt.Sprintf("/ref/v1/instruments/tradingschedule/%d/%s", params.Uic, params.AssetType)
 
 	req, err := http.NewRequest("GET", sbc.baseURL+endpoint, nil)
 	if err != nil {
-		return ports.SaxoTradingSchedule{}, fmt.Errorf("failed to create request: %w", err)
+		return SaxoTradingSchedule{}, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Add authorization header
 	token, err := sbc.authClient.GetAccessToken()
 	if err != nil {
-		return ports.SaxoTradingSchedule{}, fmt.Errorf("failed to get access token: %w", err)
+		return SaxoTradingSchedule{}, fmt.Errorf("failed to get access token: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := sbc.httpClient.Do(req)
 	if err != nil {
-		return ports.SaxoTradingSchedule{}, fmt.Errorf("HTTP request failed: %w", err)
+		return SaxoTradingSchedule{}, fmt.Errorf("HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return ports.SaxoTradingSchedule{}, sbc.handleErrorResponse(resp)
+		return SaxoTradingSchedule{}, sbc.handleErrorResponse(resp)
 	}
 
-	var schedule ports.SaxoTradingSchedule
+	var schedule SaxoTradingSchedule
 	if err := json.NewDecoder(resp.Body).Decode(&schedule); err != nil {
-		return ports.SaxoTradingSchedule{}, fmt.Errorf("failed to decode response: %w", err)
+		return SaxoTradingSchedule{}, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	sbc.logger.Printf("Trading schedule retrieved for UIC %s: %d sessions", params.Uic, len(schedule.Sessions))
+	sbc.logger.Printf("Trading schedule retrieved for UIC %d: %d sessions", params.Uic, len(schedule.Sessions))
 	return schedule, nil
 }
 
 // convertFromSaxoPrice converts Saxo price response to generic format
 // Following legacy broker/broker_http.go price conversion patterns
-func (sbc *SaxoBrokerClient) convertFromSaxoPrice(saxoPrice SaxoPriceResponse, ticker string) *ports.PriceData {
+func (sbc *SaxoBrokerClient) convertFromSaxoPrice(saxoPrice SaxoPriceResponse, ticker string) *PriceData {
 	if len(saxoPrice.Data) == 0 {
 		sbc.logger.Printf("Warning: Empty price data for %s", ticker)
-		return &ports.PriceData{
+		return &PriceData{
 			Ticker:    ticker,
 			Bid:       0.0,
 			Ask:       0.0,
@@ -805,7 +802,7 @@ func (sbc *SaxoBrokerClient) convertFromSaxoPrice(saxoPrice SaxoPriceResponse, t
 	mid := (bid + ask) / 2.0
 	spread := ask - bid
 
-	return &ports.PriceData{
+	return &PriceData{
 		Ticker:    ticker,
 		Bid:       bid,
 		Ask:       ask,
@@ -817,8 +814,8 @@ func (sbc *SaxoBrokerClient) convertFromSaxoPrice(saxoPrice SaxoPriceResponse, t
 
 // convertFromSaxoAccount converts Saxo account response to generic format
 // Following legacy portfolio balance patterns from broker/broker_http.go
-func (sbc *SaxoBrokerClient) convertFromSaxoAccount(saxoAccount SaxoAccountInfo) *ports.AccountInfo {
-	return &ports.AccountInfo{
+func (sbc *SaxoBrokerClient) convertFromSaxoAccount(saxoAccount SaxoAccountInfo) *AccountInfo {
+	return &AccountInfo{
 		AccountKey:  saxoAccount.AccountKey,
 		AccountType: saxoAccount.AccountType,
 		Currency:    saxoAccount.Currency,
@@ -827,7 +824,6 @@ func (sbc *SaxoBrokerClient) convertFromSaxoAccount(saxoAccount SaxoAccountInfo)
 		MarginFree:  0.0, // Will be populated by balance call
 	}
 }
-
 
 // doRequest executes an HTTP request using OAuth2 auto-refresh client
 // This ensures tokens are automatically refreshed before requests, triggering
@@ -842,5 +838,5 @@ func (sbc *SaxoBrokerClient) doRequest(ctx context.Context, req *http.Request) (
 
 // Compile-time interface checks to ensure SaxoBrokerClient implements required interfaces
 var (
-	_ ports.MarketDataClient = (*SaxoBrokerClient)(nil)
+	_ MarketDataClient = (*SaxoBrokerClient)(nil)
 )

@@ -1,22 +1,23 @@
 # Saxo Bank Adapter for Go
 
-Saxo Bank OpenAPI integration providing OAuth2 authentication, REST API client, and WebSocket streaming for Go applications.
+**Standalone Saxo Bank OpenAPI adapter for Go** - OAuth2 authentication, REST API client, and WebSocket streaming.
 
 ## Status
 
-🚧 **Under Development** - Session 2 Complete
+✅ **Session 2 Complete** - Standalone repository with no external dependencies
 
-**Current State**: Repository structure initialized, code copied from pivot-web2. Next steps will update imports to make this a standalone package.
+**What Works**:
+- ✅ OAuth2 authentication with automatic token refresh
+- ✅ RESTful API client for orders, positions, and market data
+- ✅ WebSocket streaming for real-time price feeds
+- ✅ Fully self-contained - no imports from pivot-web2
+- ✅ All core types and interfaces defined locally
 
-## Features
-
-- OAuth2 authentication flow with automatic token refresh
-- RESTful API client for Saxo Bank OpenAPI
-- WebSocket streaming for real-time price feeds
-- Order placement and management
-- Position and portfolio tracking
-- Instrument data enrichment
-- Comprehensive test coverage with mock servers
+**What's Next**:
+- Fix remaining test failures
+- Re-enable and fix `instrument_adapter.go` (optional)
+- Add usage examples
+- Publish first release
 
 ## Installation
 
@@ -24,23 +25,107 @@ Saxo Bank OpenAPI integration providing OAuth2 authentication, REST API client, 
 go get github.com/bjoelf/saxo-adapter@latest
 ```
 
+## Quick Start
+
+```go
+package main
+
+import (
+    "log"
+    saxo "github.com/bjoelf/saxo-adapter/adapter"
+)
+
+func main() {
+    logger := log.Default()
+    
+    // Create Saxo broker services (auth + broker client)
+    authClient, brokerClient, err := saxo.CreateBrokerServices(logger)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Use the clients...
+    _ = authClient
+    _ = brokerClient
+}
+```
+
+## Features
+
+### OAuth2 Authentication
+- Automatic token refresh
+- SIM and LIVE environment support
+- Secure token storage
+
+### REST API Client
+- Order placement and management
+- Position and portfolio tracking  
+- Market data retrieval
+- Trading schedule queries
+
+### WebSocket Streaming
+- Real-time price updates
+- Order status notifications
+- Portfolio balance updates
+- Robust reconnection handling
+
+## Configuration
+
+Set these environment variables:
+
+```bash
+# Environment (sim or live)
+export SAXO_ENVIRONMENT=sim
+
+# SIM credentials
+export SIM_CLIENT_ID=your_sim_client_id
+export SIM_CLIENT_SECRET=your_sim_secret
+
+# LIVE credentials (use with caution!)
+export LIVE_CLIENT_ID=your_live_client_id  
+export LIVE_CLIENT_SECRET=your_live_secret
+
+# Optional
+export TOKEN_STORAGE_PATH=./data  # Default: data/
+export PROVIDER=saxo  # Default: saxo
+```
+
+## Architecture
+
+This adapter is designed to be imported by trading applications. It provides:
+
+### Interfaces (Contracts)
+- `AuthClient` - OAuth2 authentication
+- `BrokerClient` - Order and position management
+- `MarketDataClient` - Market data retrieval
+- `WebSocketClient` - Real-time streaming
+
+### Types
+- Generic types: `Instrument`, `OrderRequest`, `OrderResponse`, etc.
+- Saxo-specific types: `SaxoOrderRequest`, `SaxoBalance`, etc.
+
+### Implementations
+- `SaxoAuthClient` - Implements `AuthClient`
+- `SaxoBrokerClient` - Implements `BrokerClient`  
+- `SaxoWebSocketClient` - Implements `WebSocketClient`
+
 ## Directory Structure
 
 ```
 saxo-adapter/
-├── adapter/              # Main Saxo adapter implementation
+├── adapter/              # Main adapter implementation
+│   ├── interfaces.go    # Interface definitions (contracts)
+│   ├── types.go         # Saxo-specific types
 │   ├── oauth.go         # OAuth2 authentication (672 lines)
 │   ├── saxo.go          # Main broker client (846 lines)
 │   ├── market_data.go   # Market data client (375 lines)
-│   ├── types.go         # Saxo-specific types (385 lines)
-│   ├── config.go        # Configuration (58 lines)
-│   ├── instrument_adapter.go  # Instrument enrichment (254 lines)
+│   ├── token_storage.go # Token persistence
 │   └── websocket/       # WebSocket client (2,584 lines)
 │       ├── saxo_websocket.go
 │       ├── connection_manager.go
 │       ├── subscription_manager.go
 │       ├── message_handler.go
-│       └── ...
+│       └── mocktesting/
 └── docs/                # Documentation
 ```
 
@@ -48,6 +133,38 @@ saxo-adapter/
 
 **External packages**:
 - `golang.org/x/oauth2` - OAuth2 authentication
+- `github.com/gorilla/websocket` - WebSocket client
+
+**No internal dependencies** - This is a standalone adapter that can be imported by any Go project.
+
+## Development
+
+### Build
+```bash
+go build ./...
+```
+
+### Test  
+```bash
+go test ./adapter/...
+```
+
+### Run Integration Tests
+```bash
+# Set environment variables first
+go test ./adapter -v -run Integration
+```
+
+## License
+
+MIT License - See LICENSE file
+
+## Notes
+
+- `instrument_adapter.go` is temporarily disabled - will be re-enabled in future updates
+- This adapter is extracted from the pivot-web2 trading platform
+- Designed to be a general-purpose Saxo Bank adapter for any Go application
+
 - `github.com/gorilla/websocket` - WebSocket client
 - `github.com/stretchr/testify` - Testing framework
 

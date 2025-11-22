@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bjoelf/pivot-web2/internal/adapters/saxo/websocket/mocktesting"
-	"github.com/bjoelf/pivot-web2/internal/domain"
+	saxo "github.com/bjoelf/saxo-adapter/adapter"
+	"github.com/bjoelf/saxo-adapter/adapter/websocket/mocktesting"
 )
 
-// MockAuthClient implements ports.AuthClient for testing
+// MockAuthClient implements saxo.AuthClient for testing
 type MockAuthClient struct {
 	authenticated bool
 	accessToken   string
@@ -117,7 +117,7 @@ func TestSaxoWebSocketClient_PriceSubscription(t *testing.T) {
 
 	// Register instruments with UICs (following legacy pattern)
 	// Using sample UIC value of 21 and 22 as requested
-	instruments := []*domain.Instrument{
+	instruments := []*saxo.Instrument{
 		{Ticker: "EURUSD", Identifier: 21, AssetType: "FxSpot"},
 		{Ticker: "GBPUSD", Identifier: 22, AssetType: "FxSpot"},
 	}
@@ -182,7 +182,7 @@ func TestSaxoWebSocketClient_ReconnectionLogic(t *testing.T) {
 
 	// Register instruments with UICs (following legacy pattern)
 	// Using sample UIC value of 21 as requested
-	instruments := []*domain.Instrument{
+	instruments := []*saxo.Instrument{
 		{Ticker: "EURUSD", Identifier: 21, AssetType: "FxSpot"},
 	}
 	client.RegisterInstruments(instruments)

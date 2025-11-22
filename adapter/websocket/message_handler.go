@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bjoelf/pivot-web2/internal/ports"
+	saxo "github.com/bjoelf/saxo-adapter/adapter"
 )
 
 // MessageHandler processes WebSocket messages following legacy broker_websocket.go patterns
@@ -153,8 +153,8 @@ func (mh *MessageHandler) handlePortfolioUpdate(payload []byte) error {
 	return nil
 }
 
-// convertPriceData converts StreamingPriceUpdate to ports.PriceUpdate
-func (mh *MessageHandler) convertPriceData(priceData StreamingPriceUpdate) (*ports.PriceUpdate, error) {
+// convertPriceData converts StreamingPriceUpdate to saxo.PriceUpdate
+func (mh *MessageHandler) convertPriceData(priceData StreamingPriceUpdate) (*saxo.PriceUpdate, error) {
 	// Look up ticker from UIC
 	mh.client.mappingMu.RLock()
 	ticker, exists := mh.client.uicToTicker[priceData.Uic]
@@ -164,7 +164,7 @@ func (mh *MessageHandler) convertPriceData(priceData StreamingPriceUpdate) (*por
 		return nil, fmt.Errorf("no ticker mapping for UIC %d", priceData.Uic)
 	}
 
-	return &ports.PriceUpdate{
+	return &saxo.PriceUpdate{
 		Ticker:    ticker,
 		Bid:       priceData.Quote.Bid,
 		Ask:       priceData.Quote.Ask,
@@ -174,7 +174,7 @@ func (mh *MessageHandler) convertPriceData(priceData StreamingPriceUpdate) (*por
 }
 
 // parseOrderData extracts order information from Saxo streaming format
-func (mh *MessageHandler) parseOrderData(orderData map[string]interface{}) (*ports.OrderUpdate, error) {
+func (mh *MessageHandler) parseOrderData(orderData map[string]interface{}) (*saxo.OrderUpdate, error) {
 	// Extract order ID
 	orderIdRaw, exists := orderData["OrderId"]
 	if !exists {
@@ -197,7 +197,7 @@ func (mh *MessageHandler) parseOrderData(orderData map[string]interface{}) (*por
 		}
 	}
 
-	return &ports.OrderUpdate{
+	return &saxo.OrderUpdate{
 		OrderId:    orderId,
 		Status:     status,
 		FilledSize: filledSize,
@@ -206,7 +206,7 @@ func (mh *MessageHandler) parseOrderData(orderData map[string]interface{}) (*por
 }
 
 // parsePortfolioData extracts balance information from Saxo streaming format
-func (mh *MessageHandler) parsePortfolioData(portfolioData map[string]interface{}) (*ports.PortfolioUpdate, error) {
+func (mh *MessageHandler) parsePortfolioData(portfolioData map[string]interface{}) (*saxo.PortfolioUpdate, error) {
 	// Extract balance information following legacy balance patterns
 	balance, err := mh.extractFloat64(portfolioData, "TotalValue")
 	if err != nil {
@@ -223,7 +223,7 @@ func (mh *MessageHandler) parsePortfolioData(portfolioData map[string]interface{
 		marginFree = 0.0
 	}
 
-	return &ports.PortfolioUpdate{
+	return &saxo.PortfolioUpdate{
 		Balance:    balance,
 		MarginUsed: marginUsed,
 		MarginFree: marginFree,

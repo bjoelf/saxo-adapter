@@ -9,9 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/bjoelf/pivot-web2/internal/domain"
-	"github.com/bjoelf/pivot-web2/internal/ports"
 )
 
 // MockAuthClient for testing
@@ -116,18 +113,16 @@ func (m *MockAuthClient) GetAccessToken() (string, error) {
 }
 
 // createTestInstrument creates a mock enriched instrument for testing
-func createTestInstrument(ticker string, uic int, assetType string) domain.Instrument {
-	return domain.Instrument{
+func createTestInstrument(ticker string, uic int, assetType string) Instrument {
+	return Instrument{
 		Ticker:      ticker,
 		Exchange:    "TEST",
 		AssetType:   assetType,
-		MaxPosition: 10,
 		Identifier:  uic,    // Enriched UIC
 		Symbol:      ticker, // Enriched symbol
 		Description: fmt.Sprintf("Test %s instrument", ticker),
 		Currency:    "USD",
 		TickSize:    0.0001, // Enriched tick size
-		LastUpdated: time.Now(),
 	}
 }
 
@@ -148,7 +143,7 @@ func TestSaxoBrokerClient_PlaceOrder(t *testing.T) {
 
 	// Test data - using enriched instrument (following new interface)
 	testInstrument := createTestInstrument("EURUSD", 21, "FxSpot")
-	orderReq := ports.OrderRequest{
+	orderReq := OrderRequest{
 		Instrument: testInstrument,
 		Side:       "Buy",
 		Size:       1000,
@@ -262,7 +257,7 @@ func TestSaxoBrokerClient_AuthenticationRequired(t *testing.T) {
 
 	// Test order placement without authentication should fail
 	testInstrument := createTestInstrument("EURUSD", 21, "FxSpot")
-	orderReq := ports.OrderRequest{
+	orderReq := OrderRequest{
 		Instrument: testInstrument,
 		Side:       "Buy",
 		Size:       1000,
@@ -304,7 +299,7 @@ func TestSaxoBrokerClient_ErrorHandling(t *testing.T) {
 
 	// Test order placement with error response
 	testInstrument := createTestInstrument("EURUSD", 21, "FxSpot")
-	orderReq := ports.OrderRequest{
+	orderReq := OrderRequest{
 		Instrument: testInstrument,
 		Side:       "Buy",
 		Size:       1000000, // Large amount to trigger error
@@ -358,7 +353,7 @@ func TestSaxoBrokerClient_TokenError(t *testing.T) {
 
 	// Test order placement with token error
 	testInstrument := createTestInstrument("EURUSD", 21, "FxSpot")
-	orderReq := ports.OrderRequest{
+	orderReq := OrderRequest{
 		Instrument: testInstrument,
 		Side:       "Buy",
 		Size:       1000,
@@ -399,13 +394,13 @@ func TestSaxoBrokerClient_EnrichmentValidation(t *testing.T) {
 	client := NewSaxoBrokerClient(authClient, mockServer.GetBaseURL(), logger)
 
 	// Test with un-enriched instrument (missing UIC)
-	unEnrichedInstrument := domain.Instrument{
+	unEnrichedInstrument := Instrument{
 		Ticker:    "EURUSD",
 		AssetType: "FxSpot",
 		// Identifier: 0, // Missing UIC - should cause validation error
 	}
 
-	orderReq := ports.OrderRequest{
+	orderReq := OrderRequest{
 		Instrument: unEnrichedInstrument,
 		Side:       "Buy",
 		Size:       1000,
@@ -425,13 +420,13 @@ func TestSaxoBrokerClient_EnrichmentValidation(t *testing.T) {
 	}
 
 	// Test with missing AssetType
-	missingAssetType := domain.Instrument{
+	missingAssetType := Instrument{
 		Ticker:     "EURUSD",
 		Identifier: 21, // Has UIC
 		// AssetType: "", // Missing AssetType - should cause validation error
 	}
 
-	orderReq2 := ports.OrderRequest{
+	orderReq2 := OrderRequest{
 		Instrument: missingAssetType,
 		Side:       "Buy",
 		Size:       1000,

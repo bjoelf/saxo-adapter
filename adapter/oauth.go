@@ -11,8 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bjoelf/pivot-web2/internal/adapters/storage"
-	"github.com/bjoelf/pivot-web2/internal/ports"
 	"golang.org/x/oauth2"
 )
 
@@ -122,19 +120,19 @@ func CreateSaxoAuthClient(logger *log.Logger) (*SaxoAuthClient, error) {
 		return nil, fmt.Errorf("failed to load Saxo configuration: %w", err)
 	}
 
-	storage := storage.NewTokenStorage()
-	return NewSaxoAuthClient(configs, baseURL, websocketURL, storage, environment, logger), nil
+	tokenStorage := NewTokenStorage()
+	return NewSaxoAuthClient(configs, baseURL, websocketURL, tokenStorage, environment, logger), nil
 }
 
-// SaxoAuthClient implements ports.AuthClient with full legacy functionality
+// SaxoAuthClient implements AuthClient with full legacy functionality
 type SaxoAuthClient struct {
 	providerConfigs map[string]*oauth2.Config
 	environment     SaxoEnvironment
 	baseURL         string
 	websocketURL    string // Separate WebSocket URL for new streaming domain (Dec 2025)
-	tokenStorage    ports.TokenStorage
-	tokenUpdated    chan ports.TokenInfo
-	currentToken    ports.TokenInfo
+	tokenStorage    TokenStorage
+	tokenUpdated    chan TokenInfo
+	currentToken    TokenInfo
 	tokenMutex      sync.RWMutex
 	logger          *log.Logger
 }
@@ -143,7 +141,7 @@ func NewSaxoAuthClient(
 	configs map[string]*oauth2.Config,
 	baseURL string,
 	websocketURL string,
-	storage ports.TokenStorage,
+	storage TokenStorage,
 	environment SaxoEnvironment,
 	logger *log.Logger,
 ) *SaxoAuthClient {
@@ -153,7 +151,7 @@ func NewSaxoAuthClient(
 		websocketURL:    websocketURL,
 		tokenStorage:    storage,
 		environment:     environment,
-		tokenUpdated:    make(chan ports.TokenInfo, 1),
+		tokenUpdated:    make(chan TokenInfo, 1),
 		logger:          logger,
 	}
 }
@@ -169,7 +167,7 @@ func (sac *SaxoAuthClient) GetWebSocketURL() string {
 	return sac.websocketURL
 }
 
-// GetAccessToken implements ports.AuthClient
+// GetAccessToken implements AuthClient
 func (sac *SaxoAuthClient) GetAccessToken() (string, error) {
 	token, err := sac.getValidToken(context.Background())
 	if err != nil {
@@ -178,7 +176,7 @@ func (sac *SaxoAuthClient) GetAccessToken() (string, error) {
 	return token.AccessToken, nil
 }
 
-// IsAuthenticated implements ports.AuthClient
+// IsAuthenticated implements AuthClient
 func (sac *SaxoAuthClient) IsAuthenticated() bool {
 	// Use getValidToken which auto-refreshes expired tokens (following legacy pattern)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -191,26 +189,26 @@ func (sac *SaxoAuthClient) IsAuthenticated() bool {
 	return token.AccessToken != ""
 }
 
-// Login implements ports.AuthClient - generates OAuth URL for redirect
+// Login implements AuthClient - generates OAuth URL for redirect
 
 func (sac *SaxoAuthClient) Login(ctx context.Context) error {
 	// This will be called by web handlers for redirect-based login
 	return fmt.Errorf("use Connect method for OAuth flow")
 }
 
-// Logout implements ports.AuthClient
+// Logout implements AuthClient
 func (sac *SaxoAuthClient) Logout() error {
 	sac.tokenMutex.Lock()
 	defer sac.tokenMutex.Unlock()
 
-	sac.currentToken = ports.TokenInfo{}
+	sac.currentToken = TokenInfo{}
 
 	// Clear from file storage
 	filename := sac.getTokenFilename("saxo")
 	return sac.tokenStorage.DeleteToken(filename)
 }
 
-// RefreshToken implements ports.AuthClient with legacy logic
+// RefreshToken implements AuthClient with legacy logic
 func (sac *SaxoAuthClient) RefreshToken(ctx context.Context) error {
 	token, err := sac.getToken("saxo")
 	if err != nil {
@@ -285,7 +283,7 @@ func (sac *SaxoAuthClient) StartAuthenticationKeeper(provider string) {
 		sac.logger.Println("StartAuthenticationKeeper: Setting up ticker and channel for token refresh")
 
 		ticker := time.NewTicker(timeToExpiry)
-		sac.tokenUpdated = make(chan ports.TokenInfo, 1)
+		sac.tokenUpdated = make(chan TokenInfo, 1)
 
 		go func() {
 			defer ticker.Stop()
@@ -504,7 +502,7 @@ func (sac *SaxoAuthClient) createTokenSourceWithEarlyExpiry(ctx context.Context,
 
 // Private methods implementing legacy functionality
 
-func (sac *SaxoAuthClient) getToken(provider string) (ports.TokenInfo, error) {
+func (sac *SaxoAuthClient) getToken(provider string) (TokenInfo, error) {
 	sac.tokenMutex.RLock()
 	defer sac.tokenMutex.RUnlock()
 
@@ -515,13 +513,17 @@ func (sac *SaxoAuthClient) getToken(provider string) (ports.TokenInfo, error) {
 
 	// Try to load from file
 	filename := sac.getTokenFilename(provider)
-	return sac.tokenStorage.LoadToken(filename)
+	tokenInfo, err := sac.tokenStorage.LoadToken(filename)
+	if err != nil {
+		return TokenInfo{}, err
+	}
+	return *tokenInfo, nil
 }
 
-func (sac *SaxoAuthClient) getValidToken(ctx context.Context) (ports.TokenInfo, error) {
+func (sac *SaxoAuthClient) getValidToken(ctx context.Context) (TokenInfo, error) {
 	token, err := sac.getToken("saxo")
 	if err != nil {
-		return ports.TokenInfo{}, err
+		return TokenInfo{}, err
 	}
 
 	// Token is valid
@@ -532,14 +534,14 @@ func (sac *SaxoAuthClient) getValidToken(ctx context.Context) (ports.TokenInfo, 
 	// Need to refresh
 	sac.logger.Printf("getValidToken: Token expired at %v, refreshing", token.Expiry)
 	if err := sac.RefreshToken(ctx); err != nil {
-		return ports.TokenInfo{}, err
+		return TokenInfo{}, err
 	}
 
 	// Return refreshed token
 	return sac.getToken("saxo")
 }
 
-func (sac *SaxoAuthClient) storeToken(token ports.TokenInfo) error {
+func (sac *SaxoAuthClient) storeToken(token TokenInfo) error {
 	// Update cached token
 	sac.tokenMutex.Lock()
 	sac.currentToken = token
@@ -554,7 +556,7 @@ func (sac *SaxoAuthClient) storeToken(token ports.TokenInfo) error {
 
 	// Store to file
 	filename := sac.getTokenFilename(token.Provider)
-	return sac.tokenStorage.SaveToken(filename, token)
+	return sac.tokenStorage.SaveToken(filename, &token)
 }
 
 func (sac *SaxoAuthClient) getTokenFilename(provider string) string {
@@ -562,8 +564,8 @@ func (sac *SaxoAuthClient) getTokenFilename(provider string) string {
 	return fmt.Sprintf("%s_%s%s", provider, sac.environment, tokenSuffix)
 }
 
-func (sac *SaxoAuthClient) oauth2ToTokenInfo(token oauth2.Token, provider string) ports.TokenInfo {
-	return ports.TokenInfo{
+func (sac *SaxoAuthClient) oauth2ToTokenInfo(token oauth2.Token, provider string) TokenInfo {
+	return TokenInfo{
 		AccessToken:   token.AccessToken,
 		RefreshToken:  token.RefreshToken,
 		Expiry:        token.Expiry,
