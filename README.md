@@ -77,17 +77,9 @@ Set these environment variables:
 # Environment (sim or live)
 export SAXO_ENVIRONMENT=sim
 
-# SIM credentials
-export SIM_CLIENT_ID=your_sim_client_id
-export SIM_CLIENT_SECRET=your_sim_secret
-
-# LIVE credentials (use with caution!)
-export LIVE_CLIENT_ID=your_live_client_id  
-export LIVE_CLIENT_SECRET=your_live_secret
-
-# Optional
-export TOKEN_STORAGE_PATH=./data  # Default: data/
-export PROVIDER=saxo  # Default: saxo
+# Credentials
+export SAXO_CLIENT_ID=your_client_id
+export SAXO_CLIENT_SECRET=your_secret
 ```
 
 ## Architecture

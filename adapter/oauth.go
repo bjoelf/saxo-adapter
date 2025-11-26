@@ -2,11 +2,15 @@ package saxo
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
@@ -32,85 +36,68 @@ const (
 func LoadSaxoEnvironmentConfig(logger *log.Logger) (map[string]*oauth2.Config, string, string, SaxoEnvironment, error) {
 	environment := os.Getenv("SAXO_ENVIRONMENT")
 	if environment == "" {
-		environment = "sim" // Default to SIM for safety following legacy pattern
+		environment = "sim" // Default to SIM for safety
 	}
 
-	var clientID, clientSecret, authURL, tokenURL, baseURL, websocketURL string
+	// Read credentials from simple environment variables
+	clientID := os.Getenv("SAXO_CLIENT_ID")
+	clientSecret := os.Getenv("SAXO_CLIENT_SECRET")
+
+	// Validate credentials
+	if clientID == "" {
+		return nil, "", "", "", fmt.Errorf("SAXO_CLIENT_ID not set")
+	}
+	if clientSecret == "" {
+		return nil, "", "", "", fmt.Errorf("SAXO_CLIENT_SECRET not set")
+	}
+
+	var authURL, tokenURL, baseURL, websocketURL string
 	var saxoEnv SaxoEnvironment
 
-	// Load environment-specific credentials following legacy broker/oauth.go pattern
-	// WebSocket URLs updated for December 2025 breaking change (new streaming domains)
+	// Set URLs based on environment
 	switch environment {
 	case "sim":
-		clientID = os.Getenv("SIM_CLIENT_ID")
-		clientSecret = os.Getenv("SIM_CLIENT_SECRET")
 		authURL = "https://sim.logonvalidation.net/authorize"
 		tokenURL = "https://sim.logonvalidation.net/token"
 		baseURL = "https://gateway.saxobank.com/sim/openapi"
-		websocketURL = "https://sim-streaming.saxobank.com/sim/oapi/streaming/ws" // New streaming domain (Dec 2025)
+		websocketURL = "https://sim-streaming.saxobank.com/sim/oapi/streaming/ws"
 		saxoEnv = SaxoSIM
 		logger.Println("✓ Using SIM trading environment")
 
 	case "live":
-		clientID = os.Getenv("LIVE_CLIENT_ID")
-		clientSecret = os.Getenv("LIVE_CLIENT_SECRET")
 		authURL = "https://live.logonvalidation.net/authorize"
 		tokenURL = "https://live.logonvalidation.net/token"
 		baseURL = "https://gateway.saxobank.com/openapi"
-		websocketURL = "https://live-streaming.saxobank.com/oapi/streaming/ws" // New streaming domain (Dec 2025)
+		websocketURL = "https://live-streaming.saxobank.com/oapi/streaming/ws"
 		saxoEnv = SaxoLive
-		logger.Println("⚠️  WARNING: Configured for LIVE trading environment - real money at risk!")
+		logger.Println("⚠️  WARNING: LIVE trading environment - real money at risk!")
 
 	default:
 		return nil, "", "", "", fmt.Errorf("invalid SAXO_ENVIRONMENT: %s (must be 'sim' or 'live')", environment)
 	}
 
-	// Validate environment-specific credentials (following legacy validation pattern)
-	if clientID == "" {
-		return nil, "", "", "", fmt.Errorf("missing %s OAuth credentials not set for %s environment", environment, environment)
-	}
-	if clientSecret == "" {
-		return nil, "", "", "", fmt.Errorf("missing %s OAuth credentials not set for %s environment", environment, environment)
-	}
-
-	// Log environment configuration for debugging (following legacy logging pattern)
-	logger.Printf("Saxo Environment: %s", environment)
-	logger.Printf("Client ID: %s", maskClientID(clientID))
-	logger.Printf("Auth URL: %s", authURL)
-	logger.Printf("API Base URL: %s", baseURL)
+	// Log configuration
+	logger.Printf("Environment: %s", environment)
+	logger.Printf("API URL: %s", baseURL)
 	logger.Printf("WebSocket URL: %s", websocketURL)
 
-	// Create OAuth2 configuration (RedirectURL will be set dynamically by auth handlers based on request)
+	// Create OAuth2 configuration
 	oauthConfig := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		Scopes:       []string{"openapi"}, // Saxo Bank OpenAPI scope
+		Scopes:       []string{"openapi"},
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  authURL,
 			TokenURL: tokenURL,
 		},
-		RedirectURL: "", // Will be set dynamically by auth handlers using SetRedirectURL()
-	}
-
-	// Return config map that works with existing NewSaxoAuthClient constructor
-	provider := os.Getenv("PROVIDER")
-	if provider == "" {
-		provider = "saxo"
+		RedirectURL: "", // Set dynamically by auth handlers
 	}
 
 	configs := map[string]*oauth2.Config{
-		provider: oauthConfig,
+		"saxo": oauthConfig,
 	}
 
 	return configs, baseURL, websocketURL, saxoEnv, nil
-}
-
-// maskClientID masks client ID for logging security (following legacy security pattern)
-func maskClientID(clientID string) string {
-	if len(clientID) <= 8 {
-		return "****"
-	}
-	return clientID[:4] + "****" + clientID[len(clientID)-4:]
 }
 
 // CreateSaxoAuthClient creates a new SaxoAuthClient with environment configuration
@@ -189,11 +176,17 @@ func (sac *SaxoAuthClient) IsAuthenticated() bool {
 	return token.AccessToken != ""
 }
 
-// Login implements AuthClient - generates OAuth URL for redirect
-
+// Login implements AuthClient - CLI-friendly OAuth flow with temporary callback server
 func (sac *SaxoAuthClient) Login(ctx context.Context) error {
-	// This will be called by web handlers for redirect-based login
-	return fmt.Errorf("use Connect method for OAuth flow")
+	// Check if already authenticated
+	if sac.IsAuthenticated() {
+		sac.logger.Println("✅ Already authenticated with valid token")
+		return nil
+	}
+
+	// CLI mode: Start temporary localhost server for OAuth callback
+	sac.logger.Println("🔐 Starting CLI OAuth authentication flow...")
+	return sac.loginCLI(ctx, "saxo")
 }
 
 // Logout implements AuthClient
@@ -578,19 +571,55 @@ func (sac *SaxoAuthClient) oauth2ToTokenInfo(token oauth2.Token, provider string
 func (sac *SaxoAuthClient) calcRefreshTokenExpiry(token oauth2.Token) time.Time {
 	expiryTime := token.Expiry
 
-	refreshExpiresInStr := token.Extra("refresh_token_expires_in")
-	refreshExpiresIn, err := strconv.Atoi(fmt.Sprintf("%v", refreshExpiresInStr))
-	if err != nil {
-		sac.logger.Printf("calcRefreshTokenExpiry: Error parsing refresh_token_expires_in: %v", err)
-		// Fallback: assume refresh token lasts 24 hours beyond access token
+	// Get refresh_token_expires_in with proper nil check
+	refreshExpiresInRaw := token.Extra("refresh_token_expires_in")
+	if refreshExpiresInRaw == nil {
+		// Field not present in token response, use 24-hour default
 		return expiryTime.Add(24 * time.Hour)
 	}
 
-	expiresInStr := token.Extra("expires_in")
-	expiresIn, err := strconv.Atoi(fmt.Sprintf("%v", expiresInStr))
-	if err != nil {
-		sac.logger.Printf("calcRefreshTokenExpiry: Error parsing expires_in: %v", err)
-		// Use the refresh expires in value directly
+	// Try type assertion first (API may return int or float64)
+	var refreshExpiresIn int
+	switch v := refreshExpiresInRaw.(type) {
+	case int:
+		refreshExpiresIn = v
+	case float64:
+		refreshExpiresIn = int(v)
+	case string:
+		var err error
+		refreshExpiresIn, err = strconv.Atoi(v)
+		if err != nil {
+			sac.logger.Printf("calcRefreshTokenExpiry: Error parsing refresh_token_expires_in string: %v", err)
+			return expiryTime.Add(24 * time.Hour)
+		}
+	default:
+		sac.logger.Printf("calcRefreshTokenExpiry: Unexpected type for refresh_token_expires_in: %T", refreshExpiresInRaw)
+		return expiryTime.Add(24 * time.Hour)
+	}
+
+	// Get expires_in with proper nil check
+	expiresInRaw := token.Extra("expires_in")
+	if expiresInRaw == nil {
+		// Field not present, use refresh expires in value directly
+		return expiryTime.Add(time.Duration(refreshExpiresIn) * time.Second)
+	}
+
+	// Try type assertion for expires_in
+	var expiresIn int
+	switch v := expiresInRaw.(type) {
+	case int:
+		expiresIn = v
+	case float64:
+		expiresIn = int(v)
+	case string:
+		var err error
+		expiresIn, err = strconv.Atoi(v)
+		if err != nil {
+			sac.logger.Printf("calcRefreshTokenExpiry: Error parsing expires_in string: %v", err)
+			return expiryTime.Add(time.Duration(refreshExpiresIn) * time.Second)
+		}
+	default:
+		sac.logger.Printf("calcRefreshTokenExpiry: Unexpected type for expires_in: %T", expiresInRaw)
 		return expiryTime.Add(time.Duration(refreshExpiresIn) * time.Second)
 	}
 
@@ -671,4 +700,161 @@ func (sac *SaxoAuthClient) ExchangeCodeForToken(ctx context.Context, code string
 
 	sac.logger.Printf("ExchangeCodeForToken: Token obtained, expires at %v", token.Expiry)
 	return nil
+}
+
+// loginCLI implements CLI-friendly OAuth flow with temporary localhost callback server
+// This allows CLI applications (examples, fx-collector) to authenticate without manual token generation
+func (sac *SaxoAuthClient) loginCLI(ctx context.Context, provider string) error {
+	config := sac.providerConfigs[provider]
+	if config == nil {
+		return fmt.Errorf("no OAuth config for provider: %s", provider)
+	}
+
+	// Generate random state for CSRF protection
+	state, err := generateRandomState()
+	if err != nil {
+		return fmt.Errorf("failed to generate state: %w", err)
+	}
+
+	// Set redirect URL to localhost
+	callbackPort := "8080"
+	callbackPath := "/oauth/callback"
+	redirectURL := fmt.Sprintf("http://localhost:%s%s", callbackPort, callbackPath)
+	config.RedirectURL = redirectURL
+
+	sac.logger.Printf("📍 OAuth callback URL: %s", redirectURL)
+
+	// Generate authorization URL
+	authURL := config.AuthCodeURL(state, oauth2.AccessTypeOffline)
+
+	// Channel to receive authorization code
+	codeChan := make(chan string, 1)
+	errorChan := make(chan error, 1)
+
+	// Start temporary HTTP server for OAuth callback
+	server := &http.Server{Addr: ":" + callbackPort}
+
+	http.HandleFunc(callbackPath, func(w http.ResponseWriter, r *http.Request) {
+		// Verify state parameter
+		if r.URL.Query().Get("state") != state {
+			sac.logger.Printf("❌ OAuth callback: Invalid state parameter")
+			http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+			errorChan <- fmt.Errorf("invalid state parameter")
+			return
+		}
+
+		// Get authorization code
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			sac.logger.Printf("❌ OAuth callback: No authorization code received")
+			http.Error(w, "No authorization code received", http.StatusBadRequest)
+			errorChan <- fmt.Errorf("no authorization code")
+			return
+		}
+
+		// Send success response to browser
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `
+			<html>
+			<head><title>Authentication Successful</title></head>
+			<body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+				<h1 style="color: #4CAF50;">✅ Authentication Successful!</h1>
+				<p>You can close this window and return to your terminal.</p>
+				<p style="color: #666; font-size: 14px;">Token saved to data/saxo_token.bin</p>
+			</body>
+			</html>
+		`)
+
+		// Send code to channel
+		codeChan <- code
+	})
+
+	// Start server in background
+	go func() {
+		sac.logger.Printf("🌐 Starting temporary callback server on http://localhost:%s", callbackPort)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errorChan <- fmt.Errorf("callback server error: %w", err)
+		}
+	}()
+
+	// Give server time to start
+	time.Sleep(500 * time.Millisecond)
+
+	// Open browser with authorization URL
+	sac.logger.Println("🌐 Opening browser for authentication...")
+	sac.logger.Printf("📋 If browser doesn't open, visit this URL manually:")
+	sac.logger.Printf("   %s", authURL)
+	sac.logger.Println()
+
+	if err := openBrowser(authURL); err != nil {
+		sac.logger.Printf("⚠️  Could not open browser automatically: %v", err)
+		sac.logger.Println("📋 Please open the URL above manually in your browser")
+	}
+
+	sac.logger.Println("⏳ Waiting for authentication callback...")
+
+	// Wait for callback or timeout
+	var code string
+	select {
+	case code = <-codeChan:
+		sac.logger.Println("✅ Authorization code received")
+	case err := <-errorChan:
+		server.Shutdown(context.Background())
+		return fmt.Errorf("authentication failed: %w", err)
+	case <-time.After(5 * time.Minute):
+		server.Shutdown(context.Background())
+		return fmt.Errorf("authentication timeout (5 minutes)")
+	case <-ctx.Done():
+		server.Shutdown(context.Background())
+		return fmt.Errorf("authentication cancelled")
+	}
+
+	// Shutdown callback server
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		sac.logger.Printf("⚠️  Server shutdown error (non-critical): %v", err)
+	}
+
+	// Exchange authorization code for token
+	sac.logger.Println("🔄 Exchanging authorization code for access token...")
+	if err := sac.ExchangeCodeForToken(ctx, code, provider); err != nil {
+		return fmt.Errorf("token exchange failed: %w", err)
+	}
+
+	sac.logger.Println("✅ Authentication successful! Token saved.")
+	sac.logger.Println()
+
+	// Start authentication keeper for automatic token refresh
+	sac.StartAuthenticationKeeper(provider)
+	sac.logger.Println("🔄 Token refresh manager started (auto-refresh every 58 minutes)")
+
+	return nil
+}
+
+// generateRandomState creates a cryptographically random state string for OAuth CSRF protection
+func generateRandomState() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(b), nil
+}
+
+// openBrowser opens the default browser on the user's system (cross-platform)
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	case "darwin": // macOS
+		cmd = exec.Command("open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+
+	return cmd.Start()
 }

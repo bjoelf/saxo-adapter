@@ -20,19 +20,28 @@ func main() {
 	logger.Println("using generic interfaces (BrokerClient, OrderRequest)")
 	logger.Println()
 
-	// Step 1: Create broker services
-	logger.Println("Creating broker services...")
+	// Step 1: Create auth client
+	logger.Println("Creating authentication client...")
 
 	var authClient saxo.AuthClient
-	var brokerClient saxo.BrokerClient
 	var err error
 
-	authClient, brokerClient, err = saxo.CreateBrokerServices(logger)
+	authClient, err = saxo.CreateSaxoAuthClient(logger)
+	if err != nil {
+		logger.Fatalf("Failed to create auth client: %v", err)
+	}
+
+	// Step 2: Create broker services (inject authClient)
+	logger.Println("Creating broker services...")
+
+	var brokerClient saxo.BrokerClient
+
+	brokerClient, err = saxo.CreateBrokerServices(authClient, logger)
 	if err != nil {
 		logger.Fatalf("Failed to create broker services: %v", err)
 	}
 
-	// Step 2: Authenticate using generic AuthClient interface
+	// Step 3: Authenticate using generic AuthClient interface
 	ctx := context.Background()
 	logger.Println("Authenticating...")
 	if err := authClient.Login(ctx); err != nil {
@@ -41,7 +50,7 @@ func main() {
 	logger.Println("✅ Authenticated successfully")
 	logger.Println()
 
-	// Step 3: Get current balance using generic BrokerClient interface
+	// Step 4: Get current balance using generic BrokerClient interface
 	balance, err := brokerClient.GetBalance(true)
 	if err != nil {
 		logger.Fatalf("Failed to get balance: %v", err)

@@ -13,14 +13,9 @@ import (
 	"time"
 )
 
-// CreateBrokerServices creates Saxo auth and broker clients with environment configuration
-func CreateBrokerServices(logger *log.Logger) (AuthClient, BrokerClient, error) {
-	// Create auth client with environment configuration
-	authClient, err := CreateSaxoAuthClient(logger)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create auth client: %w", err)
-	}
-
+// CreateBrokerServices creates Saxo broker client with injected auth client
+// Following dependency injection pattern like NewSaxoWebSocketClient()
+func CreateBrokerServices(authClient AuthClient, logger *log.Logger) (BrokerClient, error) {
 	// Start authentication keeper if already authenticated (legacy WebSocket lifecycle pattern)
 	if authClient.IsAuthenticated() {
 		provider := os.Getenv("PROVIDER")
@@ -36,7 +31,7 @@ func CreateBrokerServices(logger *log.Logger) (AuthClient, BrokerClient, error) 
 	// Create broker client (adapter layer)
 	brokerClient := NewSaxoBrokerClient(authClient, authClient.GetBaseURL(), logger)
 
-	return authClient, brokerClient, nil
+	return brokerClient, nil
 }
 
 // cachedHistoricalData represents cached market data for an instrument
