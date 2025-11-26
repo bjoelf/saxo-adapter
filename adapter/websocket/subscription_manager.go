@@ -208,6 +208,53 @@ func (sm *SubscriptionManager) SubscribeToPortfolioUpdates(clientKey string) err
 	return nil
 }
 
+// SubscribeToSessionEvents establishes session event subscription for connection robustness
+// Per Saxo API: POST /root/v1/sessions/events/subscriptions/active
+// Reference: pivot-web/broker/broker_websocket.go:63 - sessionsSubscriptionPath
+func (sm *SubscriptionManager) SubscribeToSessionEvents() error {
+	sm.subscriptionMu.Lock()
+	defer sm.subscriptionMu.Unlock()
+
+	// Get WebSocket Context ID
+	contextId := sm.client.contextID
+	if contextId == "" {
+		return fmt.Errorf("WebSocket not connected - no context ID")
+	}
+
+	// Generate human-readable reference ID following legacy pattern
+	referenceId := generateHumanReadableID("session_events")
+
+	// Session events subscription following API documentation
+	// This subscription has minimal arguments - monitors connection health
+	subscriptionReq := map[string]interface{}{
+		"ContextId":   contextId,
+		"ReferenceId": referenceId,
+		"RefreshRate": 1000,
+		"Format":      "application/json",
+	}
+
+	sm.client.logger.Printf("SubscribeToSessionEvents: Sending subscription via HTTP POST...")
+	sm.client.logger.Printf("  Subscription request: %+v", subscriptionReq)
+
+	if err := sm.sendSubscriptionRequest("/root/v1/sessions/events/subscriptions/active", subscriptionReq); err != nil {
+		sm.client.logger.Printf("❌ SubscribeToSessionEvents: Failed to send HTTP POST: %v", err)
+		return fmt.Errorf("failed to send session events subscription: %w", err)
+	}
+
+	subscription := &Subscription{
+		ContextId:    contextId,
+		ReferenceId:  referenceId,
+		State:        "Active",
+		SubscribedAt: time.Now(),
+		Arguments:    map[string]interface{}{}, // No special arguments for session events
+	}
+
+	sm.subscriptions["session_events"] = subscription
+	sm.client.logger.Println("✅ Subscribed to session events via HTTP POST")
+
+	return nil
+}
+
 // sendSubscriptionRequest sends HTTP POST subscription request following Saxo streaming API
 // Per documentation: Subscriptions are ALWAYS sent via HTTP POST, never via WebSocket
 // Reference: https://www.developer.saxo/openapi/learn/streaming#Subscription-example
@@ -300,6 +347,8 @@ func (sm *SubscriptionManager) ResubscribeAll() error {
 			endpoint = "/port/v1/orders/subscriptions"
 		case "portfolio_balance":
 			endpoint = "/port/v1/balances/subscriptions"
+		case "session_events":
+			endpoint = "/root/v1/sessions/events/subscriptions/active"
 		default:
 			sm.client.logger.Printf("❌ Unknown subscription type: %s", refId)
 			continue
@@ -524,46 +573,4 @@ func (sm *SubscriptionManager) getUicsForInstruments(instruments []string) []int
 	}
 
 	return uics
-}
-
-// SubscribeToSessionEvents establishes session event subscription
-// Following legacy StartSessionEventSubscription pattern
-// This monitors session state and can trigger session capability upgrades
-func (sm *SubscriptionManager) SubscribeToSessionEvents(sessionHandler func(payload []byte)) error {
-	sm.subscriptionMu.Lock()
-	defer sm.subscriptionMu.Unlock()
-
-	// Generate human-readable reference ID following legacy pattern
-	referenceId := generateHumanReadableID("session")
-	contextId := sm.client.contextID
-
-	// Saxo session event subscription
-	subscriptionReq := map[string]interface{}{
-		"ContextId":   contextId,
-		"ReferenceId": referenceId,
-		"RefreshRate": 1000,
-	}
-
-	// Send subscription request
-	if err := sm.client.conn.WriteJSON(subscriptionReq); err != nil {
-		return fmt.Errorf("failed to send session subscription: %w", err)
-	}
-
-	// Track subscription
-	subscription := &Subscription{
-		ContextId:           contextId,
-		ReferenceId:         referenceId,
-		State:               "Subscribing",
-		SubscribedAt:        time.Now(),
-		SubscriptionMessage: subscriptionReq,
-		EndpointPath:        "/root/v1/sessions/events/subscriptions/active",
-	}
-
-	sm.subscriptions[referenceId] = subscription
-
-	// Register callback handler for session events
-	sm.client.RegisterCallbackHandler(referenceId, sessionHandler)
-
-	sm.client.logger.Println("Subscribed to session events")
-	return nil
 }

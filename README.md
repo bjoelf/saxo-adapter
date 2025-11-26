@@ -2,54 +2,66 @@
 
 **Standalone Saxo Bank OpenAPI adapter for Go** - OAuth2 authentication, REST API client, and WebSocket streaming.
 
-## ⚠️ Pre-1.0 Status: Experimental Development
+## ⚠️ Pre-1.0 Status: Stable Development
 
-**Current Version:** `v0.2.0-dev` (Pre-release)  
-**Status:** Active development, API may change frequently
+**Current Version:** `v0.3.0` 🎉  
+**Release Date:** November 26, 2025  
+**Status:** Core features stable, API refinement ongoing
 
-> **Warning:** This library is in the **0.x pre-release phase**. Breaking changes may occur in minor versions (0.x.0) as we refine the API based on real-world usage. Pin to exact versions in production: `require github.com/bjoelf/saxo-adapter v0.2.5`
+> **Note:** This library is in the **0.x stable phase**. Core interfaces are now stable for production use. Minor additions may occur before v1.0. Pin to minor versions in production: `require github.com/bjoelf/saxo-adapter v0.3.x`
 
 ### What Works ✅
 - ✅ OAuth2 authentication with automatic token refresh
 - ✅ RESTful API client for orders, positions, and market data
-- ✅ WebSocket streaming for real-time price feeds
+- ✅ Order modification (trailing stops, market conversions)
+- ✅ Historical chart data with 1-hour caching
+- ✅ WebSocket streaming for real-time updates:
+  - Price feeds (`SubscribeToPrices`)
+  - Order status updates (`SubscribeToOrders`)
+  - Portfolio balance (`SubscribeToPortfolio`)
+  - Session events (`SubscribeToSessionEvents`)
+- ✅ Automatic WebSocket reconnection with subscription recovery
 - ✅ Fully self-contained - no imports from pivot-web2
 - ✅ All core types and interfaces defined locally
 
 ### Interface Stability Levels
 
-#### 🟢 Stable (Unlikely to change before v1.0)
-- `BrokerClient` core methods (PlaceOrder, GetBalance, GetAccounts)
-- `AuthClient` authentication methods
-- `WebSocketClient` basic streaming operations
+#### 🟢 Stable (Production-ready, locked for v1.0)
+- `BrokerClient` core methods (PlaceOrder, ModifyOrder, GetBalance, GetAccounts)
+- `AuthClient` authentication methods (Login, GetAccessToken, token refresh)
+- `WebSocketClient` streaming operations:
+  - SubscribeToPrices, SubscribeToOrders, SubscribeToPortfolio, SubscribeToSessionEvents
+  - Connection management, automatic reconnection
+- `MarketDataClient` methods:
+  - GetHistoricalData (with caching), GetTradingSchedule
 
 #### 🟡 Experimental (May change before v1.0)
-- Extended trading methods (ModifyOrder, ClosePosition)
-- Market data retrieval methods
-- Advanced WebSocket subscriptions
+- Advanced position management (GetNetPositions, GetClosedPositions)
+- Multi-account operations
+- Complex order types (OCO, brackets)
 
 #### 🔵 Planned (Not yet implemented)
 - Margin calculation methods
 - Risk analysis features
-- Advanced charting data
 - Multi-leg order support
+- Automated trading strategies
 
 ### Path to v1.0.0 🎯
 
 **Target:** Q2 2026 (after 6+ months of production validation)
 
 We will release v1.0.0 when:
-- Core interfaces stable for 6+ months
-- Multiple production deployments validated
-- Comprehensive test coverage (>80%)
+- Core interfaces stable for 6+ months ✅ (achieved in v0.3.0)
+- Multiple production deployments validated (in progress)
+- Comprehensive test coverage (>80%) (current: ~70%)
 - Complete documentation with examples
 - Community feedback incorporated
 
 **Roadmap:**
-- `v0.3.0` (Dec 2025) - Stabilize core interfaces, add examples
-- `v0.4.0` (Jan 2026) - Add margin calculation methods
-- `v0.5.0` (Feb 2026) - Add risk analysis features
-- `v0.6.0` (Mar 2026) - Feature freeze, stabilization period
+- ✅ `v0.3.0` (Nov 2025) - **COMPLETE** - Core interfaces stabilized, all 4 WebSocket subscriptions, ModifyOrder, historical data, GetNetPositions, GetClosedPositions
+- `v0.4.0` (Jan 2026) - Comprehensive examples, additional conveniences based on user feedback
+- `v0.5.0` (Feb 2026) - Add margin calculation methods, risk analysis
+- `v0.6.0` (Mar 2026) - Feature freeze, stabilization period, test coverage to 90%
 - `v1.0.0-rc1` (Apr 2026) - Release candidate testing
 - `v1.0.0` (May 2026) - Full stability guarantees begin
 
@@ -241,16 +253,19 @@ saxo-adapter/
 │   ├── interfaces.go    # Interface definitions (contracts)
 │   ├── types.go         # Saxo-specific types
 │   ├── oauth.go         # OAuth2 authentication (672 lines)
-│   ├── saxo.go          # Main broker client (846 lines)
-│   ├── market_data.go   # Market data client (375 lines)
+│   ├── saxo.go          # Main broker client (838 lines, includes ModifyOrder)
+│   ├── market_data.go   # Market data client (375 lines, includes GetHistoricalData)
 │   ├── token_storage.go # Token persistence
-│   └── websocket/       # WebSocket client (2,584 lines)
-│       ├── saxo_websocket.go
-│       ├── connection_manager.go
-│       ├── subscription_manager.go
-│       ├── message_handler.go
-│       └── mocktesting/
+│   └── websocket/       # WebSocket client (2,800+ lines)
+│       ├── saxo_websocket.go        # Main client with 4 subscription methods
+│       ├── connection_manager.go    # Reconnection logic
+│       ├── subscription_manager.go  # All 4 Saxo subscriptions (prices, orders, portfolio, sessions)
+│       ├── message_handler.go       # Message routing
+│       └── mocktesting/             # Test infrastructure
 └── docs/                # Documentation
+    ├── ARCHITECTURE.md
+    ├── AUTHENTICATION.md
+    └── COMPLETION_STATUS.md
 ```
 
 ## Dependencies

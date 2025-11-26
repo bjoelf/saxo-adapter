@@ -40,6 +40,9 @@ type BrokerClient interface {
 	GetBalance(force bool) (*SaxoPortfolioBalance, error)
 	GetAccounts(force bool) (*SaxoAccounts, error)
 	GetTradingSchedule(params SaxoTradingScheduleParams) (SaxoTradingSchedule, error)
+	GetOpenPositions(ctx context.Context) (*SaxoOpenPositionsResponse, error)
+	GetNetPositions(ctx context.Context) (*SaxoNetPositionsResponse, error)
+	GetClosedPositions(ctx context.Context) (*SaxoClosedPositionsResponse, error)
 }
 
 // MarketDataClient defines interface for market data operations
@@ -57,6 +60,7 @@ type WebSocketClient interface {
 	SubscribeToPrices(ctx context.Context, instruments []string) error
 	SubscribeToOrders(ctx context.Context) error
 	SubscribeToPortfolio(ctx context.Context) error
+	SubscribeToSessionEvents(ctx context.Context) error
 	GetPriceUpdateChannel() <-chan PriceUpdate
 	GetOrderUpdateChannel() <-chan OrderUpdate
 	GetPortfolioUpdateChannel() <-chan PortfolioUpdate

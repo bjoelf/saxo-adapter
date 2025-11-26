@@ -215,6 +215,19 @@ func (ws *SaxoWebSocketClient) SubscribeToPortfolio(ctx context.Context) error {
 	return nil
 }
 
+// SubscribeToSessionEvents delegates to subscription manager
+// Reference: pivot-web/broker/broker_websocket.go:63 - sessionsSubscriptionPath
+func (ws *SaxoWebSocketClient) SubscribeToSessionEvents(ctx context.Context) error {
+	ws.logger.Println("SaxoWebSocket: Subscribing to session events...")
+	err := ws.subscriptionManager.SubscribeToSessionEvents()
+	if err != nil {
+		ws.logger.Printf("SaxoWebSocket: Session events subscription failed: %v", err)
+		return err
+	}
+	ws.logger.Println("SaxoWebSocket: ✅ Session events subscription successful")
+	return nil
+}
+
 // Channel accessor methods for strategy_manager integration
 func (ws *SaxoWebSocketClient) GetPriceUpdateChannel() <-chan saxo.PriceUpdate {
 	return ws.priceUpdateChan
@@ -695,17 +708,6 @@ func (ws *SaxoWebSocketClient) reconnectWebSocket() error {
 
 	ws.logger.Println("reconnectWebSocket: Reconnection completed successfully")
 	return nil
-}
-
-// SubscribeToSessionEvents subscribes to session state changes
-// Following legacy StartSessionEventSubscription pattern
-func (ws *SaxoWebSocketClient) SubscribeToSessionEvents(ctx context.Context) error {
-	// Create session event handler
-	sessionHandler := func(payload []byte) {
-		ws.handleSessionEvent(payload)
-	}
-
-	return ws.subscriptionManager.SubscribeToSessionEvents(sessionHandler)
 }
 
 // handleSessionEvent processes session event messages

@@ -337,6 +337,54 @@ type SaxoOpenPosition struct {
 	} `json:"PositionView"`
 }
 
+// SaxoNetPositionsResponse represents response from GET /port/v1/netpositions/me
+type SaxoNetPositionsResponse struct {
+	Data  []SaxoNetPosition `json:"Data"`
+	Count int               `json:"__count"`
+}
+
+// SaxoNetPosition represents an aggregated net position from Saxo Bank API
+// NetPositions aggregate multiple individual positions of the same instrument
+type SaxoNetPosition struct {
+	DisplayAndFormat struct {
+		Currency    string `json:"Currency"`
+		Decimals    int    `json:"Decimals"`
+		Description string `json:"Description"`
+		Format      string `json:"Format"`
+		Symbol      string `json:"Symbol"`
+	} `json:"DisplayAndFormat"`
+	NetPositionBase struct {
+		AccountID             string    `json:"AccountId"`
+		Amount                float64   `json:"Amount"`
+		AssetType             string    `json:"AssetType"`
+		CanBeClosed           bool      `json:"CanBeClosed"`
+		ExecutionTimeOpen     time.Time `json:"ExecutionTimeOpen"`
+		IsMarketOpen          bool      `json:"IsMarketOpen"`
+		NumberOfRelatedOrders int       `json:"NumberOfRelatedOrders"`
+		OpenPrice             float64   `json:"OpenPrice"`
+		Status                string    `json:"Status"`
+		Uic                   int       `json:"Uic"`
+	} `json:"NetPositionBase"`
+	NetPositionID   string `json:"NetPositionId"`
+	NetPositionView struct {
+		Ask                             float64 `json:"Ask"`
+		Bid                             float64 `json:"Bid"`
+		CurrentPrice                    float64 `json:"CurrentPrice"`
+		Exposure                        float64 `json:"Exposure"`
+		ExposureCurrency                string  `json:"ExposureCurrency"`
+		ExposureInBaseCurrency          float64 `json:"ExposureInBaseCurrency"`
+		MarketValue                     float64 `json:"MarketValue"`
+		MarketValueInBaseCurrency       float64 `json:"MarketValueInBaseCurrency"`
+		ProfitLossOnTrade               float64 `json:"ProfitLossOnTrade"`
+		ProfitLossOnTradeInBaseCurrency float64 `json:"ProfitLossOnTradeInBaseCurrency"`
+		TradeCostsTotal                 float64 `json:"TradeCostsTotal"`
+		TradeCostsTotalInBaseCurrency   float64 `json:"TradeCostsTotalInBaseCurrency"`
+	} `json:"NetPositionView"`
+	PositionsAccount        string `json:"PositionsAccount"`
+	PositionsNotClosedCount int    `json:"PositionsNotClosedCount"`
+	SinglePositionID        string `json:"SinglePositionId"`
+}
+
 // SaxoClosedPositionsResponse represents response from GET /port/v1/closedpositions/me
 type SaxoClosedPositionsResponse struct {
 	Data  []SaxoClosedPosition `json:"Data"`

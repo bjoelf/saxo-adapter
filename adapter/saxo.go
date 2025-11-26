@@ -465,6 +465,39 @@ func (sbc *SaxoBrokerClient) GetOpenPositions(ctx context.Context) (*SaxoOpenPos
 	return &saxoResponse, nil
 }
 
+// GetNetPositions retrieves aggregated net positions from Saxo API
+// Endpoint: GET /port/v1/netpositions/me
+// NetPositions aggregate multiple individual positions of the same instrument
+// Example: 3 long EURUSD positions = 1 net position showing total exposure
+func (sbc *SaxoBrokerClient) GetNetPositions(ctx context.Context) (*SaxoNetPositionsResponse, error) {
+	url := fmt.Sprintf("%s/port/v1/netpositions/me", sbc.baseURL)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Execute request with OAuth2 auto-refresh
+	resp, err := sbc.doRequest(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get net positions: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, sbc.handleErrorResponse(resp)
+	}
+
+	// Parse Saxo response
+	var saxoResponse SaxoNetPositionsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&saxoResponse); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	sbc.logger.Printf("GetNetPositions: Retrieved %d net positions", len(saxoResponse.Data))
+	return &saxoResponse, nil
+}
+
 // GetClosedPositions retrieves closed positions from Saxo API
 // Endpoint: GET /port/v1/closedpositions/me
 func (sbc *SaxoBrokerClient) GetClosedPositions(ctx context.Context) (*SaxoClosedPositionsResponse, error) {
