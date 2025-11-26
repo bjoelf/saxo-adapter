@@ -203,9 +203,19 @@ func (sac *SaxoAuthClient) Logout() error {
 
 // RefreshToken implements AuthClient with legacy logic
 func (sac *SaxoAuthClient) RefreshToken(ctx context.Context) error {
-	token, err := sac.getToken("saxo")
-	if err != nil {
-		return err
+	// CRITICAL: Use cached token directly to avoid circular dependency with getValidToken()
+	// The TokenSource.Token() call below will handle checking expiry and refreshing automatically
+	sac.tokenMutex.RLock()
+	token := sac.currentToken
+	sac.tokenMutex.RUnlock()
+
+	// If no cached token, try loading from file
+	if token.AccessToken == "" {
+		var err error
+		token, err = sac.getToken("saxo")
+		if err != nil {
+			return err
+		}
 	}
 
 	config := sac.providerConfigs["saxo"]
@@ -214,6 +224,7 @@ func (sac *SaxoAuthClient) RefreshToken(ctx context.Context) error {
 	}
 
 	// Create token source and refresh
+	// IMPORTANT: TokenSource.Token() automatically checks expiry and refreshes if needed
 	oauthToken := &oauth2.Token{
 		AccessToken:  token.AccessToken,
 		RefreshToken: token.RefreshToken,
@@ -225,6 +236,12 @@ func (sac *SaxoAuthClient) RefreshToken(ctx context.Context) error {
 	if err != nil {
 		sac.logger.Printf("RefreshToken: Unable to refresh token: %v", err)
 		return err
+	}
+
+	// Check if token was actually refreshed (access token changed)
+	if newToken.AccessToken == token.AccessToken {
+		sac.logger.Println("RefreshToken: Token was not refreshed (same access token)")
+		// Still update in case expiry changed
 	}
 
 	// Convert and store
@@ -384,26 +401,17 @@ func (sac *SaxoAuthClient) StartTokenEarlyRefresh(ctx context.Context, wsConnect
 					continue
 				}
 
-				// Time to refresh token
-				sac.logger.Println("StartTokenRefresh: Refreshing token for WebSocket...")
-
-				if err := sac.RefreshToken(context.Background()); err != nil {
-					sac.logger.Printf("StartTokenRefresh: Token refresh failed: %v", err)
-					// Retry sooner on failure
-					ticker.Reset(1 * time.Minute)
-					continue
-				}
-
-				sac.logger.Println("StartTokenRefresh: ✓ Token refreshed successfully")
-
-				// Re-authorize WebSocket with new token
+				// Re-authorize WebSocket - this will automatically refresh token if needed
+				// The TokenSource with early expiry handles the refresh automatically!
 				if currentContextID != "" {
 					sac.logger.Printf("StartTokenRefresh: Re-authorizing WebSocket (contextID: %s)", currentContextID)
 					if err := sac.ReauthorizeWebSocket(context.Background(), currentContextID); err != nil {
 						sac.logger.Printf("StartTokenRefresh: WebSocket re-authorization failed: %v", err)
-					} else {
-						sac.logger.Println("StartTokenRefresh: ✓ WebSocket re-authorized with new token")
+						// Retry sooner on failure
+						ticker.Reset(1 * time.Minute)
+						continue
 					}
+					sac.logger.Println("StartTokenRefresh: ✓ WebSocket re-authorized successfully")
 				}
 
 				// Recalculate interval for next refresh
@@ -422,10 +430,12 @@ func (sac *SaxoAuthClient) ReauthorizeWebSocket(ctx context.Context, contextID s
 		return fmt.Errorf("contextID cannot be empty")
 	}
 
-	// Get current token
-	token, err := sac.getValidToken(ctx)
+	// Get current token (cached or from file)
+	// CRITICAL: Use getToken() not getValidToken() to avoid circular refresh
+	// The TokenSource below will handle expiry check and refresh automatically!
+	token, err := sac.getToken("saxo")
 	if err != nil {
-		return fmt.Errorf("failed to get valid token: %w", err)
+		return fmt.Errorf("failed to get token: %w", err)
 	}
 
 	// Build re-authorization URL
@@ -434,6 +444,7 @@ func (sac *SaxoAuthClient) ReauthorizeWebSocket(ctx context.Context, contextID s
 	// Create token source with early expiry (2 minutes before actual expiry)
 	// This ensures token refresh happens BEFORE WebSocket re-authorization if needed
 	// Following legacy pattern: oauth2.ReuseTokenSourceWithExpiry
+	// KEY: The TokenSource automatically checks expiry and refreshes if needed!
 	oauthToken := &oauth2.Token{
 		AccessToken:  token.AccessToken,
 		RefreshToken: token.RefreshToken,
@@ -450,6 +461,8 @@ func (sac *SaxoAuthClient) ReauthorizeWebSocket(ctx context.Context, contextID s
 	}
 
 	// Execute request
+	// CRITICAL: The oauth2.Client automatically calls tokenSource.Token() before the request
+	// If token is expired or within earlyRefreshTime, it refreshes automatically!
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
