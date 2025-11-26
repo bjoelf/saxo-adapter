@@ -2,22 +2,69 @@
 
 **Standalone Saxo Bank OpenAPI adapter for Go** - OAuth2 authentication, REST API client, and WebSocket streaming.
 
-## Status
+## ⚠️ Pre-1.0 Status: Experimental Development
 
-✅ **Session 2 Complete** - Standalone repository with no external dependencies
+**Current Version:** `v0.2.0-dev` (Pre-release)  
+**Status:** Active development, API may change frequently
 
-**What Works**:
+> **Warning:** This library is in the **0.x pre-release phase**. Breaking changes may occur in minor versions (0.x.0) as we refine the API based on real-world usage. Pin to exact versions in production: `require github.com/bjoelf/saxo-adapter v0.2.5`
+
+### What Works ✅
 - ✅ OAuth2 authentication with automatic token refresh
 - ✅ RESTful API client for orders, positions, and market data
 - ✅ WebSocket streaming for real-time price feeds
 - ✅ Fully self-contained - no imports from pivot-web2
 - ✅ All core types and interfaces defined locally
 
-**What's Next**:
-- Fix remaining test failures
-- Re-enable and fix `instrument_adapter.go` (optional)
-- Add usage examples
-- Publish first release
+### Interface Stability Levels
+
+#### 🟢 Stable (Unlikely to change before v1.0)
+- `BrokerClient` core methods (PlaceOrder, GetBalance, GetAccounts)
+- `AuthClient` authentication methods
+- `WebSocketClient` basic streaming operations
+
+#### 🟡 Experimental (May change before v1.0)
+- Extended trading methods (ModifyOrder, ClosePosition)
+- Market data retrieval methods
+- Advanced WebSocket subscriptions
+
+#### 🔵 Planned (Not yet implemented)
+- Margin calculation methods
+- Risk analysis features
+- Advanced charting data
+- Multi-leg order support
+
+### Path to v1.0.0 🎯
+
+**Target:** Q2 2026 (after 6+ months of production validation)
+
+We will release v1.0.0 when:
+- Core interfaces stable for 6+ months
+- Multiple production deployments validated
+- Comprehensive test coverage (>80%)
+- Complete documentation with examples
+- Community feedback incorporated
+
+**Roadmap:**
+- `v0.3.0` (Dec 2025) - Stabilize core interfaces, add examples
+- `v0.4.0` (Jan 2026) - Add margin calculation methods
+- `v0.5.0` (Feb 2026) - Add risk analysis features
+- `v0.6.0` (Mar 2026) - Feature freeze, stabilization period
+- `v1.0.0-rc1` (Apr 2026) - Release candidate testing
+- `v1.0.0` (May 2026) - Full stability guarantees begin
+
+### 💡 Feature Requests Welcome!
+
+We're actively gathering requirements for the v1.0 API. If you need specific broker operations:
+
+**Please open an issue with:**
+- Feature description (e.g., "Need margin calculation for futures")
+- Use case (why you need it)
+- Expected interface (how you'd like to use it)
+
+This helps us design the right abstractions before locking down the API in v1.0.0.
+
+**Open an issue:** https://github.com/bjoelf/saxo-adapter/issues/new
 
 ## Installation
 
@@ -84,7 +131,92 @@ export SAXO_CLIENT_SECRET=your_secret
 
 ## Architecture
 
-This adapter is designed to be imported by trading applications. It provides:
+This adapter follows clean architecture principles with a focus on **interface stability during pre-1.0 development**.
+
+### Design Philosophy
+
+**Pre-1.0 Strategy:**
+- **Core interfaces** kept minimal and stable (PlaceOrder, GetBalance, etc.)
+- **Extension interfaces** for advanced features (can evolve in 0.x versions)
+- **Planned interfaces** documented but not enforced yet
+- **Breaking changes acceptable** in 0.x versions (semver-compliant)
+
+**Post-1.0 Strategy:**
+- Core interfaces locked (changes only in major versions)
+- New features added via optional extension interfaces
+- Full semantic versioning guarantees
+
+### Interface Organization
+
+```go
+// ============================================================================
+// STABLE CORE (v0.x) - Minimal changes expected
+// ============================================================================
+
+type BrokerClient interface {
+    PlaceOrder(ctx context.Context, req OrderRequest) (*OrderResponse, error)
+    CancelOrder(ctx context.Context, req CancelOrderRequest) error
+    GetBalance(force bool) (*SaxoPortfolioBalance, error)
+    GetAccounts(force bool) (*SaxoAccounts, error)
+    GetOpenOrders(ctx context.Context) ([]LiveOrder, error)
+}
+
+type AuthClient interface {
+    Login(ctx context.Context) error
+    IsAuthenticated() bool
+    GetAccessToken() (string, error)
+    // ... other stable auth methods
+}
+
+// ============================================================================
+// EXPERIMENTAL (v0.x) - May change before v1.0
+// ============================================================================
+
+type MarketDataClient interface {
+    GetHistoricalData(ctx, instrument, days) ([]HistoricalDataPoint, error)
+    GetTradingSchedule(params) (SaxoTradingSchedule, error)
+    // May add more methods in 0.x versions
+}
+
+// ============================================================================
+// PLANNED (Future) - Interface draft, not implemented
+// ============================================================================
+
+// Coming in v0.4.0
+type MarginCalculator interface {
+    GetMarginRequirement(ctx, instrument) (float64, error)
+    CalculatePositionMargin(ctx, position) (float64, error)
+}
+```
+
+### Interface Evolution Pattern
+
+**During 0.x (Now → v1.0):**
+- Can add methods to interfaces (breaking changes OK)
+- Document changes in CHANGELOG.md
+- Provide migration guides for breaking changes
+
+**After v1.0:**
+- Core interfaces frozen
+- New features via extension interfaces only
+- Type assertions for optional capabilities:
+  ```go
+  if calc, ok := client.(MarginCalculator); ok {
+      margin, _ := calc.GetMarginRequirement(ctx, instrument)
+  }
+  ```
+
+### Versioning Policy
+
+**Pre-1.0 (Current):**
+- `v0.x.0 → v0.(x+1).0` - May include breaking changes
+- `v0.3.x → v0.3.(x+1)` - Backward compatible additions/fixes
+- Pin exact versions: `require github.com/bjoelf/saxo-adapter v0.3.5`
+
+**Post-1.0 (Future):**
+- `v1.x.x → v2.0.0` - Breaking changes (rare, with migration guide)
+- `v1.0.x → v1.1.0` - New extension interfaces (non-breaking)
+- `v1.1.x → v1.1.y` - Bug fixes only
 
 ### Interfaces (Contracts)
 - `AuthClient` - OAuth2 authentication
@@ -131,6 +263,27 @@ saxo-adapter/
 
 ## Development
 
+### Contributing
+
+We welcome contributions! Since we're in pre-1.0 development, we're especially interested in:
+
+**🎯 Feature Requests**
+- What broker operations do you need?
+- What use cases should we support?
+- What would make the API more intuitive?
+
+**🐛 Bug Reports**
+- Issues with authentication
+- WebSocket connection problems
+- API incompatibilities
+
+**📖 Documentation**
+- Usage examples
+- Integration guides
+- Best practices
+
+**Please open an issue before submitting large PRs** - We may be redesigning that area!
+
 ### Build
 ```bash
 go build ./...
@@ -144,42 +297,68 @@ go test ./adapter/...
 ### Run Integration Tests
 ```bash
 # Set environment variables first
+export SAXO_ENVIRONMENT=sim
+export SAXO_CLIENT_ID=your_id
+export SAXO_CLIENT_SECRET=your_secret
+
 go test ./adapter -v -run Integration
 ```
+
+### Version Management
+
+**For Consumers:**
+Pin to exact versions during 0.x phase:
+```go
+// go.mod
+require github.com/bjoelf/saxo-adapter v0.3.5
+```
+
+**For Maintainers:**
+- Update CHANGELOG.md with every release
+- Tag releases: `git tag v0.3.0 && git push --tags`
+- Mark breaking changes: `[BREAKING]` in changelog
+
+## Stability Commitment
+
+**What we promise:**
+- ✅ Core trading operations (PlaceOrder, GetBalance) will remain stable
+- ✅ All breaking changes documented in CHANGELOG.md
+- ✅ Migration guides for version updates
+- ✅ No silent breaking changes
+
+**What we don't promise (until v1.0):**
+- ⚠️ Interface signatures may change in minor versions (0.x.0)
+- ⚠️ Experimental features may be redesigned
+- ⚠️ Planned features may be removed if not needed
+
+**After v1.0.0:**
+- Full semantic versioning guarantees
+- Breaking changes only in major versions
+- Deprecation warnings before removal
+- Long-term support commitment
 
 ## License
 
 MIT License - See LICENSE file
 
-## Notes
-
-- `instrument_adapter.go` is temporarily disabled - will be re-enabled in future updates
-- This adapter is extracted from the pivot-web2 trading platform
-- Designed to be a general-purpose Saxo Bank adapter for any Go application
-
-- `github.com/gorilla/websocket` - WebSocket client
-- `github.com/stretchr/testify` - Testing framework
-
-**Note**: Currently contains references to `pivot-web2` internal packages which will be replaced with local types in upcoming sessions.
-
-## Usage
-
-Documentation will be added as the extraction progresses. This adapter is being extracted from a private trading platform to become a reusable public package.
-
-## Extraction Progress
-
-- [x] **Session 1**: Analyze dependencies & copy code ✅
-- [x] **Session 2**: Create repository structure ✅
-- [ ] **Session 3**: Extract core files & update imports
-- [ ] **Session 4**: Create adapter factory & README
-- [ ] **Session 5**: Update pivot-web2 to use public adapter
-- [ ] **Session 6**: Publish & verify
-
-## License
-
-MIT License - See [LICENSE](LICENSE) file
-
 ## References
 
-- Implementation guide: [AI_IMPLEMENTATION_GUIDE.md](https://github.com/bjoelf/pivot-web2/blob/main/docs/workflows/refactoring-best-practice/AI_IMPLEMENTATION_GUIDE.md)
-- Analysis document: [saxo-extraction-analysis.md](https://github.com/bjoelf/pivot-web2/blob/main/docs/workflows/refactoring-best-practice/saxo-extraction-analysis.md)
+- **Documentation:** See `docs/` directory
+  - [ARCHITECTURE.md](docs/ARCHITECTURE.md) - Design philosophy and patterns
+  - [AUTHENTICATION.md](docs/AUTHENTICATION.md) - OAuth2 setup guide
+  - [COMPLETION_STATUS.md](docs/COMPLETION_STATUS.md) - Implementation status
+- **Issues & Feature Requests:** https://github.com/bjoelf/saxo-adapter/issues
+- **Discussions:** https://github.com/bjoelf/saxo-adapter/discussions
+
+## Acknowledgments
+
+This adapter was extracted from the [pivot-web2](https://github.com/bjoelf/pivot-web2) trading platform to serve as a standalone, reusable library for the Go community.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for version history and breaking changes.
+
+---
+
+**Questions?** Open an issue or start a discussion!  
+**Need a feature?** Tell us about your use case - we're designing the v1.0 API now!
