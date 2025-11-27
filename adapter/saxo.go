@@ -530,12 +530,40 @@ func (sbc *SaxoBrokerClient) GetClosedPositions(ctx context.Context) (*SaxoClose
 	return &saxoResponse, nil
 }
 
-// GetAccounts implements BrokerClient.GetAccounts
-// TODO: Implement actual Saxo accounts API call
-func (sbc *SaxoBrokerClient) GetAccounts(force bool) (*SaxoAccounts, error) {
-	sbc.logger.Printf("GetAccounts: Called with force=%v - TODO: implement", force)
-	// Placeholder implementation - needs actual Saxo API integration
-	return &SaxoAccounts{}, fmt.Errorf("GetAccounts not yet implemented")
+// GetAccounts implements BrokerClient.GetAccounts with generic return type
+func (sbc *SaxoBrokerClient) GetAccounts(ctx context.Context) (*Accounts, error) {
+	sbc.logger.Printf("GetAccounts: Fetching accounts")
+
+	url := fmt.Sprintf("%s/port/v1/accounts/me", sbc.baseURL)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := sbc.doRequest(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get accounts: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, sbc.handleErrorResponse(resp)
+	}
+
+	var saxoResp SaxoAccountResponse
+	if err := json.NewDecoder(resp.Body).Decode(&saxoResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Convert to generic Accounts (identical schema)
+	accounts := &Accounts{
+		Data: make([]Account, len(saxoResp.Data)),
+	}
+	for i := range saxoResp.Data {
+		accounts.Data[i] = Account(saxoResp.Data[i])
+	}
+
+	return accounts, nil
 }
 
 // GetAccountBalance retrieves account balance from Saxo API
@@ -636,12 +664,18 @@ func (sbc *SaxoBrokerClient) GetClientInfo(ctx context.Context) (*SaxoClientInfo
 	return &clientInfo, nil
 }
 
-// GetBalance implements BrokerClient.GetBalance (legacy signature)
-// TODO: Implement actual Saxo balance API call
-func (sbc *SaxoBrokerClient) GetBalance(force bool) (*SaxoPortfolioBalance, error) {
-	sbc.logger.Printf("GetBalance: Called with force=%v - TODO: implement", force)
-	// Placeholder implementation - needs actual Saxo API integration
-	return &SaxoPortfolioBalance{}, fmt.Errorf("GetBalance not yet implemented")
+// GetBalance implements BrokerClient.GetBalance with generic return type
+func (sbc *SaxoBrokerClient) GetBalance(ctx context.Context) (*Balance, error) {
+	sbc.logger.Printf("GetBalance: Fetching account balance")
+
+	// Get Saxo-specific balance
+	saxoBalance, err := sbc.GetAccountBalance(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert Saxo-specific SaxoBalance to generic Balance (identical schema)
+	return (*Balance)(saxoBalance), nil
 }
 
 // Private conversion methods - handle Saxo-specific format internally
@@ -733,77 +767,60 @@ func (sbc *SaxoBrokerClient) convertFromSaxoOpenOrder(saxoOrder SaxoOpenOrder) L
 		RelatedOrders:  relatedOrders,
 
 		// Additional Saxo fields
-		BuySell:          saxoOrder.BuySell,
-		OrderDuration:    saxoOrder.OrderDuration.DurationType,
-		OrderRelation:    saxoOrder.OrderRelation,
-		AccountKey:       saxoOrder.AccountKey,
-		ClientKey:        saxoOrder.ClientKey,
-		DistanceToMarket: saxoOrder.DistanceToMarket,
-		IsMarketOpen:     saxoOrder.IsMarketOpen,
-		MarketPrice:      saxoOrder.MarketPrice,
-		OrderAmountType:  "Quantity", // Default, TODO: get from actual order
+		BuySell: saxoOrder.BuySell,
 	}
 }
 
-func (sbc *SaxoBrokerClient) handleErrorResponse(resp *http.Response) error {
-	// Read the response body first
-	bodyBytes, readErr := io.ReadAll(resp.Body)
-	if readErr != nil {
-		return fmt.Errorf("HTTP %d (failed to read error response body: %v)", resp.StatusCode, readErr)
-	}
-
-	// Log the raw response for debugging
-	sbc.logger.Printf("Saxo API Error Response (HTTP %d): %s", resp.StatusCode, string(bodyBytes))
-
-	// Try to decode as structured error
-	var saxoErr SaxoErrorResponse
-	if err := json.Unmarshal(bodyBytes, &saxoErr); err != nil {
-		return fmt.Errorf("HTTP %d (raw response: %s)", resp.StatusCode, string(bodyBytes))
-	}
-
-	// Build error message - handle empty fields gracefully
-	if saxoErr.ErrorCode == "" && saxoErr.Message == "" {
-		return fmt.Errorf("HTTP %d (raw response: %s)", resp.StatusCode, string(bodyBytes))
-	}
-	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, saxoErr.Message)
-}
-
-// GetTradingSchedule retrieves trading schedule from Saxo API
+// GetTradingSchedule retrieves trading schedule from Saxo API with generic return type
 // Following legacy broker/broker_http.go GetSaxoTradingSchedule pattern
 // Endpoint: /ref/v1/instruments/tradingschedule/{UIC}/{AssetType}
-func (sbc *SaxoBrokerClient) GetTradingSchedule(params SaxoTradingScheduleParams) (SaxoTradingSchedule, error) {
+func (sbc *SaxoBrokerClient) GetTradingSchedule(ctx context.Context, params TradingScheduleParams) (*TradingSchedule, error) {
 	endpoint := fmt.Sprintf("/ref/v1/instruments/tradingschedule/%d/%s", params.Uic, params.AssetType)
 
-	req, err := http.NewRequest("GET", sbc.baseURL+endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", sbc.baseURL+endpoint, nil)
 	if err != nil {
-		return SaxoTradingSchedule{}, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Add authorization header
-	token, err := sbc.authClient.GetAccessToken()
+	resp, err := sbc.doRequest(ctx, req)
 	if err != nil {
-		return SaxoTradingSchedule{}, fmt.Errorf("failed to get access token: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := sbc.httpClient.Do(req)
-	if err != nil {
-		return SaxoTradingSchedule{}, fmt.Errorf("HTTP request failed: %w", err)
+		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return SaxoTradingSchedule{}, sbc.handleErrorResponse(resp)
+		return nil, sbc.handleErrorResponse(resp)
 	}
 
-	var schedule SaxoTradingSchedule
-	if err := json.NewDecoder(resp.Body).Decode(&schedule); err != nil {
-		return SaxoTradingSchedule{}, fmt.Errorf("failed to decode response: %w", err)
+	var saxoSchedule SaxoTradingSchedule
+	if err := json.NewDecoder(resp.Body).Decode(&saxoSchedule); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	sbc.logger.Printf("Trading schedule retrieved for UIC %d: %d sessions", params.Uic, len(schedule.Sessions))
-	return schedule, nil
+	sbc.logger.Printf("Trading schedule retrieved for UIC %d: %d sessions", params.Uic, len(saxoSchedule.Sessions))
+
+	// Convert to generic TradingSchedule (identical schema - convert each phase)
+	phases := make([]TradingPhase, len(saxoSchedule.Phases))
+	for i, p := range saxoSchedule.Phases {
+		phases[i] = TradingPhase{
+			StartTime: p.StartTime,
+			EndTime:   p.EndTime,
+			State:     p.State,
+		}
+	}
+	sessions := make([]TradingPhase, len(saxoSchedule.Sessions))
+	for i, s := range saxoSchedule.Sessions {
+		sessions[i] = TradingPhase{
+			StartTime: s.StartTime,
+			EndTime:   s.EndTime,
+			State:     s.State,
+		}
+	}
+
+	return &TradingSchedule{
+		Phases:   phases,
+		Sessions: sessions,
+	}, nil
 }
 
 // convertFromSaxoPrice converts Saxo price response to generic format
@@ -862,6 +879,12 @@ func (sbc *SaxoBrokerClient) doRequest(ctx context.Context, req *http.Request) (
 		return nil, fmt.Errorf("failed to get HTTP client: %w", err)
 	}
 	return httpClient.Do(req)
+}
+
+// handleErrorResponse handles HTTP error responses
+func (sbc *SaxoBrokerClient) handleErrorResponse(resp *http.Response) error {
+	body, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 }
 
 // Compile-time interface checks to ensure SaxoBrokerClient implements required interfaces

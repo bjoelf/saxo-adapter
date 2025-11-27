@@ -29,20 +29,26 @@ type AuthClient interface {
 }
 
 // BrokerClient defines the interface for direct broker operations
+// This is a generic, broker-agnostic interface that any broker can implement
 type BrokerClient interface {
+	// Core trading operations
 	PlaceOrder(ctx context.Context, req OrderRequest) (*OrderResponse, error)
 	DeleteOrder(ctx context.Context, orderID string) error
 	ModifyOrder(ctx context.Context, req OrderModificationRequest) (*OrderResponse, error)
 	GetOrderStatus(ctx context.Context, orderID string) (*OrderStatus, error)
 	CancelOrder(ctx context.Context, req CancelOrderRequest) error
 	ClosePosition(ctx context.Context, req ClosePositionRequest) (*OrderResponse, error)
+
+	// Order and position queries
 	GetOpenOrders(ctx context.Context) ([]LiveOrder, error)
-	GetBalance(force bool) (*SaxoPortfolioBalance, error)
-	GetAccounts(force bool) (*SaxoAccounts, error)
-	GetTradingSchedule(params SaxoTradingScheduleParams) (SaxoTradingSchedule, error)
 	GetOpenPositions(ctx context.Context) (*SaxoOpenPositionsResponse, error)
 	GetNetPositions(ctx context.Context) (*SaxoNetPositionsResponse, error)
 	GetClosedPositions(ctx context.Context) (*SaxoClosedPositionsResponse, error)
+
+	// Account and balance queries - generic, broker-agnostic
+	GetBalance(ctx context.Context) (*Balance, error)
+	GetAccounts(ctx context.Context) (*Accounts, error)
+	GetTradingSchedule(ctx context.Context, params TradingScheduleParams) (*TradingSchedule, error)
 }
 
 // MarketDataClient defines interface for market data operations
@@ -212,6 +218,96 @@ type AccountInfo struct {
 	Balance     float64 `json:"balance"`
 	MarginUsed  float64 `json:"margin_used"`
 	MarginFree  float64 `json:"margin_free"`
+}
+
+// Balance represents generic account balance information
+// Schema identical to SaxoBalance - generic naming for broker-agnostic use
+type Balance struct {
+	CalculationReliability           string  `json:"CalculationReliability"`
+	CashAvailableForTrading          float64 `json:"CashAvailableForTrading"`
+	CashBalance                      float64 `json:"CashBalance"`
+	CashBlocked                      float64 `json:"CashBlocked"`
+	ChangesScheduled                 bool    `json:"ChangesScheduled"`
+	ClosedPositionsCount             int     `json:"ClosedPositionsCount"`
+	CollateralAvailable              float64 `json:"CollateralAvailable"`
+	CorporateActionUnrealizedAmounts float64 `json:"CorporateActionUnrealizedAmounts"`
+	CostToClosePositions             float64 `json:"CostToClosePositions"`
+	Currency                         string  `json:"Currency"`
+	CurrencyDecimals                 int     `json:"CurrencyDecimals"`
+	InitialMargin                    struct {
+		CollateralAvailable          float64 `json:"CollateralAvailable"`
+		MarginAvailable              float64 `json:"MarginAvailable"`
+		MarginCollateralNotAvailable float64 `json:"MarginCollateralNotAvailable"`
+		MarginUsedByCurrentPositions float64 `json:"MarginUsedByCurrentPositions"`
+		MarginUtilizationPct         float64 `json:"MarginUtilizationPct"`
+		NetEquityForMargin           float64 `json:"NetEquityForMargin"`
+		OtherCollateralDeduction     float64 `json:"OtherCollateralDeduction"`
+	} `json:"InitialMargin"`
+	IntradayMarginDiscount            float64 `json:"IntradayMarginDiscount"`
+	IsPortfolioMarginModelSimple      bool    `json:"IsPortfolioMarginModelSimple"`
+	MarginAndCollateralUtilizationPct float64 `json:"MarginAndCollateralUtilizationPct"`
+	MarginAvailableForTrading         float64 `json:"MarginAvailableForTrading"`
+	MarginCollateralNotAvailable      float64 `json:"MarginCollateralNotAvailable"`
+	MarginExposureCoveragePct         float64 `json:"MarginExposureCoveragePct"`
+	MarginNetExposure                 float64 `json:"MarginNetExposure"`
+	MarginUsedByCurrentPositions      float64 `json:"MarginUsedByCurrentPositions"`
+	MarginUtilizationPct              float64 `json:"MarginUtilizationPct"`
+	NetEquityForMargin                float64 `json:"NetEquityForMargin"`
+	NetPositionsCount                 int     `json:"NetPositionsCount"`
+	NonMarginPositionsValue           float64 `json:"NonMarginPositionsValue"`
+	OpenIpoOrdersCount                int     `json:"OpenIpoOrdersCount"`
+	OpenPositionsCount                int     `json:"OpenPositionsCount"`
+	OptionPremiumsMarketValue         float64 `json:"OptionPremiumsMarketValue"`
+	OrdersCount                       int     `json:"OrdersCount"`
+	OtherCollateral                   float64 `json:"OtherCollateral"`
+	SettlementValue                   float64 `json:"SettlementValue"`
+	SpendingPowerDetail               struct {
+		Current float64 `json:"Current"`
+		Maximum float64 `json:"Maximum"`
+	} `json:"SpendingPowerDetail"`
+	TotalValue                       float64 `json:"TotalValue"`
+	TransactionsNotBooked            float64 `json:"TransactionsNotBooked"`
+	TriggerOrdersCount               int     `json:"TriggerOrdersCount"`
+	UnrealizedMarginClosedProfitLoss float64 `json:"UnrealizedMarginClosedProfitLoss"`
+	UnrealizedMarginOpenProfitLoss   float64 `json:"UnrealizedMarginOpenProfitLoss"`
+	UnrealizedMarginProfitLoss       float64 `json:"UnrealizedMarginProfitLoss"`
+	UnrealizedPositionsValue         float64 `json:"UnrealizedPositionsValue"`
+}
+
+// Account represents a trading account
+// Schema identical to SaxoAccountInfo - generic naming for broker-agnostic use
+type Account struct {
+	AccountKey                            string `json:"AccountKey"`
+	AccountType                           string `json:"AccountType"`
+	Currency                              string `json:"Currency"`
+	ClientKey                             string `json:"ClientKey"`
+	CanUseCashPositionsAsMarginCollateral bool   `json:"CanUseCashPositionsAsMarginCollateral"`
+}
+
+// Accounts represents a collection of trading accounts
+type Accounts struct {
+	Data []Account `json:"data"`
+}
+
+// TradingScheduleParams represents parameters for querying trading schedule
+type TradingScheduleParams struct {
+	Uic       int    `json:"uic"`
+	AssetType string `json:"asset_type"`
+}
+
+// TradingSchedule represents market open/close times for an instrument
+// Schema identical to SaxoTradingSchedule - generic naming for broker-agnostic use
+type TradingSchedule struct {
+	Phases   []TradingPhase `json:"Phases"`
+	Sessions []TradingPhase `json:"Sessions"` // Alias for compatibility
+}
+
+// TradingPhase represents a trading phase (open/close times)
+// Schema identical to SaxoTradingPhase - generic naming for broker-agnostic use
+type TradingPhase struct {
+	StartTime time.Time `json:"StartTime"`
+	EndTime   time.Time `json:"EndTime"`
+	State     string    `json:"State"` // "Open", "Closed", etc.
 }
 
 // OrderUpdate represents real-time order status changes
