@@ -5,6 +5,12 @@
 		},
 		{
 			"path": "../pivot-web2"
+		},
+		{
+			"path": "../fx-collector"
+		},
+		{
+			"path": "../pivot-web"
 		}
 	],
 	"settings": {
