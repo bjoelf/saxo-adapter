@@ -70,7 +70,7 @@ We will release v1.0.0 when:
 - `v1.0.0-rc1` (Apr 2026) - Release candidate testing
 - `v1.0.0` (May 2026) - Full stability guarantees begin
 
-### 💡 Feature Requests Welcome!
+### 💡 Feature Requests Welcome
 
 We're actively gathering requirements for the v1.0 API. If you need specific broker operations:
 
@@ -82,7 +82,7 @@ We're actively gathering requirements for the v1.0 API. If you need specific bro
 
 This helps us design the right abstractions before locking down the API in v1.0.0.
 
-**Open an issue:** https://github.com/bjoelf/saxo-adapter/issues/new
+**Open an issue:** <https://github.com/bjoelf/saxo-adapter/issues/new>
 
 ## Installation
 
