@@ -49,6 +49,11 @@ type BrokerClient interface {
 	GetBalance(ctx context.Context) (*Balance, error)
 	GetAccounts(ctx context.Context) (*Accounts, error)
 	GetTradingSchedule(ctx context.Context, params TradingScheduleParams) (*TradingSchedule, error)
+
+	// Instrument search and metadata (Tier 2 - The Usual Suspects)
+	SearchInstruments(ctx context.Context, params InstrumentSearchParams) ([]Instrument, error)
+	GetInstrumentDetails(ctx context.Context, uics []int) ([]InstrumentDetail, error)
+	GetInstrumentPrices(ctx context.Context, uics []int, fieldGroups string) ([]InstrumentPriceInfo, error)
 }
 
 // MarketDataClient defines interface for market data operations
@@ -89,7 +94,7 @@ type Instrument struct {
 	Symbol      string
 	Description string
 	Currency    string
-	TickSize    float32
+	TickSize    float64 // Changed from float32 to float64 for precision
 	Decimals    int
 }
 
@@ -324,6 +329,33 @@ type PortfolioUpdate struct {
 	MarginUsed float64   `json:"margin_used"`
 	MarginFree float64   `json:"margin_free"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// InstrumentSearchParams represents parameters for instrument search
+type InstrumentSearchParams struct {
+	Keywords  string `json:"keywords"`
+	AssetType string `json:"asset_type"`
+	Exchange  string `json:"exchange"`
+}
+
+// InstrumentDetail represents detailed instrument information
+type InstrumentDetail struct {
+	Uic                   int       `json:"uic"`
+	TickSize              float64   `json:"tick_size"`
+	Decimals              int       `json:"decimals"`
+	OrderDecimals         int       `json:"order_decimals"`
+	ExpiryDate            time.Time `json:"expiry_date"`
+	NoticeDate            time.Time `json:"notice_date"`
+	PriceToContractFactor float64   `json:"price_to_contract_factor"`
+	Format                string    `json:"format"` // "ModernFractions", "Normal", etc.
+	NumeratorDecimals     int       `json:"numerator_decimals"`
+}
+
+// InstrumentPriceInfo represents price information for instrument selection
+type InstrumentPriceInfo struct {
+	Uic          int     `json:"uic"`
+	OpenInterest float64 `json:"open_interest"`
+	LastPrice    float64 `json:"last_price"`
 }
 
 // ============================================================================

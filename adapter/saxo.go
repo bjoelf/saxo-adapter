@@ -887,6 +887,217 @@ func (sbc *SaxoBrokerClient) handleErrorResponse(resp *http.Response) error {
 	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 }
 
+// SearchInstruments implements BrokerClient.SearchInstruments
+// Searches for instruments matching criteria
+func (sbc *SaxoBrokerClient) SearchInstruments(ctx context.Context, params InstrumentSearchParams) ([]Instrument, error) {
+	sbc.logger.Printf("SearchInstruments: Searching for %s instruments with keywords '%s'", params.AssetType, params.Keywords)
+
+	if !sbc.authClient.IsAuthenticated() {
+		return nil, fmt.Errorf("not authenticated with broker")
+	}
+
+	// Build URL with query parameters
+	url := fmt.Sprintf("%s/ref/v1/instruments/?AssetType=%s&ExchangeId=%s&Keywords=%s&Skip=0",
+		sbc.baseURL, params.AssetType, params.Exchange, params.Keywords)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := sbc.doRequest(ctx, httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, sbc.handleErrorResponse(resp)
+	}
+
+	// Parse Saxo API response
+	var saxoResp struct {
+		Data []struct {
+			Identifier   int    `json:"Identifier"`
+			Symbol       string `json:"Symbol"`
+			Description  string `json:"Description"`
+			AssetType    string `json:"AssetType"`
+			ExchangeID   string `json:"ExchangeId"`
+			CurrencyCode string `json:"CurrencyCode"`
+		} `json:"Data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&saxoResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Convert to generic Instrument format
+	instruments := make([]Instrument, len(saxoResp.Data))
+	for i, item := range saxoResp.Data {
+		instruments[i] = Instrument{
+			Identifier:  item.Identifier,
+			Uic:         item.Identifier,
+			Symbol:      item.Symbol,
+			Description: item.Description,
+			AssetType:   item.AssetType,
+			Exchange:    item.ExchangeID,
+			Currency:    item.CurrencyCode,
+		}
+	}
+
+	sbc.logger.Printf("Found %d instruments", len(instruments))
+	return instruments, nil
+}
+
+// GetInstrumentDetails implements BrokerClient.GetInstrumentDetails
+// Gets detailed instrument information for multiple UICs
+func (sbc *SaxoBrokerClient) GetInstrumentDetails(ctx context.Context, uics []int) ([]InstrumentDetail, error) {
+	sbc.logger.Printf("GetInstrumentDetails: Fetching details for %d instruments", len(uics))
+
+	if !sbc.authClient.IsAuthenticated() {
+		return nil, fmt.Errorf("not authenticated with broker")
+	}
+
+	// Convert UICs to comma-separated string
+	uicsStr := fmt.Sprintf("%d", uics[0])
+	for i := 1; i < len(uics); i++ {
+		uicsStr += fmt.Sprintf(",%d", uics[i])
+	}
+
+	url := fmt.Sprintf("%s/ref/v1/instruments/details?Uics=%s", sbc.baseURL, uicsStr)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := sbc.doRequest(ctx, httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, sbc.handleErrorResponse(resp)
+	}
+
+	// Parse Saxo API response
+	var saxoResp struct {
+		Data []struct {
+			Identifier            int     `json:"Identifier"`
+			TickSize              float64 `json:"TickSize"`
+			ExpiryDate            string  `json:"ExpiryDate"`
+			NoticeDate            string  `json:"NoticeDate"`
+			PriceToContractFactor float64 `json:"PriceToContractFactor"`
+			Format                struct {
+				Decimals          int    `json:"Decimals"`
+				OrderDecimals     int    `json:"OrderDecimals"`
+				Format            string `json:"Format"`
+				NumeratorDecimals int    `json:"NumeratorDecimals"`
+			} `json:"Format"`
+		} `json:"Data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&saxoResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Convert to generic InstrumentDetail format
+	details := make([]InstrumentDetail, len(saxoResp.Data))
+	for i, item := range saxoResp.Data {
+		detail := InstrumentDetail{
+			Uic:                   item.Identifier,
+			TickSize:              item.TickSize,
+			Decimals:              item.Format.Decimals,
+			OrderDecimals:         item.Format.OrderDecimals,
+			PriceToContractFactor: item.PriceToContractFactor,
+			Format:                item.Format.Format,
+			NumeratorDecimals:     item.Format.NumeratorDecimals,
+		}
+
+		// Parse dates if available
+		if item.ExpiryDate != "" {
+			if expiry, err := time.Parse("2006-01-02", item.ExpiryDate); err == nil {
+				detail.ExpiryDate = expiry
+			}
+		}
+		if item.NoticeDate != "" {
+			if notice, err := time.Parse("2006-01-02", item.NoticeDate); err == nil {
+				detail.NoticeDate = notice
+			}
+		}
+
+		details[i] = detail
+	}
+
+	sbc.logger.Printf("Retrieved details for %d instruments", len(details))
+	return details, nil
+}
+
+// GetInstrumentPrices implements BrokerClient.GetInstrumentPrices
+// Gets price information (including open interest) for instrument selection
+func (sbc *SaxoBrokerClient) GetInstrumentPrices(ctx context.Context, uics []int, fieldGroups string) ([]InstrumentPriceInfo, error) {
+	sbc.logger.Printf("GetInstrumentPrices: Fetching prices for %d instruments", len(uics))
+
+	if !sbc.authClient.IsAuthenticated() {
+		return nil, fmt.Errorf("not authenticated with broker")
+	}
+
+	// Convert UICs to comma-separated string
+	uicsStr := fmt.Sprintf("%d", uics[0])
+	for i := 1; i < len(uics); i++ {
+		uicsStr += fmt.Sprintf(",%d", uics[i])
+	}
+
+	url := fmt.Sprintf("%s/trade/v1/infoprices/list?Uics=%s&FieldGroups=%s&AssetType=ContractFutures",
+		sbc.baseURL, uicsStr, fieldGroups)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := sbc.doRequest(ctx, httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, sbc.handleErrorResponse(resp)
+	}
+
+	// Parse Saxo API response
+	var saxoResp struct {
+		Data []struct {
+			Uic                    int `json:"Uic"`
+			InstrumentPriceDetails struct {
+				OpenInterest float64 `json:"OpenInterest"`
+			} `json:"InstrumentPriceDetails"`
+			Quote struct {
+				Mid float64 `json:"Mid"`
+			} `json:"Quote"`
+		} `json:"Data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&saxoResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Convert to generic InstrumentPriceInfo format
+	prices := make([]InstrumentPriceInfo, len(saxoResp.Data))
+	for i, item := range saxoResp.Data {
+		prices[i] = InstrumentPriceInfo{
+			Uic:          item.Uic,
+			OpenInterest: item.InstrumentPriceDetails.OpenInterest,
+			LastPrice:    item.Quote.Mid,
+		}
+	}
+
+	sbc.logger.Printf("Retrieved prices for %d instruments", len(prices))
+	return prices, nil
+}
+
 // Compile-time interface checks to ensure SaxoBrokerClient implements required interfaces
 var (
 	_ MarketDataClient = (*SaxoBrokerClient)(nil)
