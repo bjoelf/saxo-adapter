@@ -1,23 +1,13 @@
 {
-	"folders": [
-		{
-			"path": "."
-		},
-		{
-			"path": "../pivot-web2"
-		},
-		{
-			"path": "../fx-collector"
-		},
-		{
-			"path": "../pivot-web"
-		}
-	],
-	"settings": {
-		"go.toolsManagement.checkForUpdates": "local",
-		"files.associations": {
-			"*.gohtml": "html"
-		},
-		"makefile.configureOnOpen": false
-	}
+    "folders": [
+        {
+            "path": "../pivot-web2"
+        },
+        {
+            "path": "."
+        },
+        {
+            "path": "../fx-collector"
+        }
+    ]
 }

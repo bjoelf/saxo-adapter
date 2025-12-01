@@ -22,18 +22,20 @@ func tomorrowMidnightRFC3339() string {
 	return formattedTomorrow
 }
 
-// roundTickSize rounds a value to the nearest tick size
+// RoundTickSize rounds a value to the nearest tick size
 // Following legacy strategies/strategy.go RoundTickSize() pattern
-func roundTickSize(value, rounding float64) float64 {
+// This is exported for use by other packages that need generic trading math.
+func RoundTickSize(value, rounding float64) float64 {
 	if rounding == 0 {
 		return math.Round(value)
 	}
 	return math.Round(value/rounding) * rounding
 }
 
-// setDecimals rounds a value to the specified number of decimal places
+// SetDecimals rounds a value to the specified number of decimal places
 // Following legacy strategies/strategy.go SetDecimals() pattern
-func setDecimals(value float64, decimals int, modernFractions bool, numeratorDecimals int) float64 {
+// This is exported for use by other packages that need generic trading math.
+func SetDecimals(value float64, decimals int, modernFractions bool, numeratorDecimals int) float64 {
 	if modernFractions {
 		// Handle modern fractions rounding - add numerator decimals
 		decimals = decimals + numeratorDecimals
@@ -42,9 +44,10 @@ func setDecimals(value float64, decimals int, modernFractions bool, numeratorDec
 	return math.Round(value*shift) / shift
 }
 
-// getDecimalsFromTickSize calculates the number of decimal places from a tick size
+// GetDecimalsFromTickSize calculates the number of decimal places from a tick size
 // For example: 0.25 -> 2 decimals, 0.1 -> 1 decimal, 1.0 -> 0 decimals
-func getDecimalsFromTickSize(tickSize float64) int {
+// This is exported for use by other packages that need generic trading math.
+func GetDecimalsFromTickSize(tickSize float64) int {
 	if tickSize <= 0 {
 		return 2 // Default fallback
 	}
