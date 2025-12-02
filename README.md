@@ -222,6 +222,7 @@ type MarginCalculator interface {
 
 ## Directory Structure
 
+```
 saxo-adapter/
 ├── adapter/              # Main adapter implementation
 │   ├── interfaces.go    # Interface definitions (contracts)
@@ -240,6 +241,7 @@ saxo-adapter/
     ├── ARCHITECTURE.md
     ├── AUTHENTICATION.md
     └── COMPLETION_STATUS.md
+```
 
 ## Dependencies
 
