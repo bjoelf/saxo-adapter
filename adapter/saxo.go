@@ -802,19 +802,11 @@ func (sbc *SaxoBrokerClient) GetTradingSchedule(ctx context.Context, params Trad
 	// Convert to generic TradingSchedule (identical schema - convert each phase)
 	phases := make([]TradingPhase, len(saxoSchedule.Phases))
 	for i, p := range saxoSchedule.Phases {
-		phases[i] = TradingPhase{
-			StartTime: p.StartTime,
-			EndTime:   p.EndTime,
-			State:     p.State,
-		}
+		phases[i] = TradingPhase(p)
 	}
 	sessions := make([]TradingPhase, len(saxoSchedule.Sessions))
 	for i, s := range saxoSchedule.Sessions {
-		sessions[i] = TradingPhase{
-			StartTime: s.StartTime,
-			EndTime:   s.EndTime,
-			State:     s.State,
-		}
+		sessions[i] = TradingPhase(s)
 	}
 
 	return &TradingSchedule{
