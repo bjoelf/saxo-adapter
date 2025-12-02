@@ -22,7 +22,6 @@ This adapter implements a **clean separation between generic broker operations a
 │                                                         │
 │  • BrokerClient interface                               │
 │  • AuthClient interface                                 │
-│  • MarketDataClient interface                           │
 │  • WebSocketClient interface                            │
 │                                                         │
 │  Generic Types:                                         │
@@ -69,229 +68,161 @@ This adapter implements a **clean separation between generic broker operations a
 ### BrokerClient Interface
 ```go
 type BrokerClient interface {
-    PlaceOrder(ctx context.Context, req OrderRequest) (*OrderResponse, error)
-    DeleteOrder(ctx context.Context, orderID string) error
-    ModifyOrder(ctx context.Context, req OrderModificationRequest) (*OrderResponse, error)
-    GetOrderStatus(ctx context.Context, orderID string) (*OrderStatus, error)
-    CancelOrder(ctx context.Context, req CancelOrderRequest) error
-    ClosePosition(ctx context.Context, req ClosePositionRequest) (*OrderResponse, error)
-    GetOpenOrders(ctx context.Context) ([]LiveOrder, error)
-    GetBalance(force bool) (*SaxoPortfolioBalance, error)
-    GetAccounts(force bool) (*SaxoAccounts, error)
-    GetTradingSchedule(params SaxoTradingScheduleParams) (SaxoTradingSchedule, error)
+    // Orders
+    PlaceOrder(ctx, OrderRequest) (*OrderResponse, error)
+    ModifyOrder(ctx, OrderModificationRequest) (*OrderResponse, error)
+    CancelOrder(ctx, CancelOrderRequest) error
+    ClosePosition(ctx, ClosePositionRequest) (*OrderResponse, error)
+    DeleteOrder(ctx, orderID string) error
+    GetOrderStatus(ctx, orderID string) (*OrderStatus, error)
+    
+    // Queries
+    GetOpenOrders(ctx) ([]LiveOrder, error)
+    GetOpenPositions(ctx) (*OpenPositionsResponse, error)
+    GetNetPositions(ctx) (*NetPositionsResponse, error)
+    GetClosedPositions(ctx) (*ClosedPositionsResponse, error)
+    
+    // Account
+    GetBalance(ctx) (*Balance, error)
+    GetAccounts(ctx) (*Accounts, error)
+    GetMarginOverview(ctx, clientKey string) (*MarginOverview, error)
+    GetClientInfo(ctx) (*ClientInfo, error)
+    
+    // Market Data
+    GetTradingSchedule(ctx, params) (*TradingSchedule, error)
+    SearchInstruments(ctx, params) ([]Instrument, error)
+    GetInstrumentDetails(ctx, uics []int) ([]InstrumentDetail, error)
+    GetInstrumentPrices(ctx, uics []int, fieldGroups string) ([]InstrumentPriceInfo, error)
+    GetInstrumentPrice(ctx, Instrument) (*PriceData, error)
+    GetHistoricalData(ctx, Instrument, days int) ([]HistoricalDataPoint, error)
 }
 ```
 
-**Purpose**: Define broker operations without exposing Saxo specifics  
-**Used by**: Trading strategies, order management systems  
-**Implemented by**: `SaxoBrokerClient`
+### AuthClient
 
-### AuthClient Interface
 ```go
 type AuthClient interface {
-    GetHTTPClient(ctx context.Context) (*http.Client, error)
+    Login(ctx) error
+    Logout() error
+    RefreshToken(ctx) error
     IsAuthenticated() bool
     GetAccessToken() (string, error)
-    Login(ctx context.Context) error
-    Logout() error
-    RefreshToken(ctx context.Context) error
-    StartAuthenticationKeeper(provider string)
-    StartTokenEarlyRefresh(ctx context.Context, wsConnected <-chan bool, wsContextID <-chan string)
+    GetHTTPClient(ctx) (*http.Client, error)
     GetBaseURL() string
     GetWebSocketURL() string
+    StartAuthenticationKeeper(provider string)
+    StartTokenEarlyRefresh(ctx, wsConnected <-chan bool, wsContextID <-chan string)
 }
 ```
 
-**Purpose**: OAuth2 authentication lifecycle management  
-**Used by**: BrokerClient, WebSocketClient  
-**Implemented by**: `SaxoAuthClient`
-
-### MarketDataClient Interface
-```go
-type MarketDataClient interface {
-    Subscribe(ctx context.Context, instruments []string) (<-chan PriceUpdate, error)
-    Unsubscribe(ctx context.Context, instruments []string) error
-    GetInstrumentPrice(ctx context.Context, instrument Instrument) (*PriceData, error)
-    GetHistoricalData(ctx context.Context, instrument Instrument, days int) ([]HistoricalDataPoint, error)
-    GetAccountInfo(ctx context.Context) (*AccountInfo, error)
-}
-```
-
-**Purpose**: Real-time and historical market data  
-**Used by**: Price monitoring, signal generation  
-**Implemented by**: `SaxoMarketDataClient`
-
-### WebSocketClient Interface
+### WebSocketClient
 ```go
 type WebSocketClient interface {
-    Connect(ctx context.Context) error
-    SubscribeToPrices(ctx context.Context, instruments []string) error
-    SubscribeToOrders(ctx context.Context) error
-    SubscribeToPortfolio(ctx context.Context) error
+    Connect(ctx) error
+    Close() error
+    
+    // Subscriptions
+    SubscribeToPrices(ctx, instruments []string) error
+    SubscribeToOrders(ctx) error
+    SubscribeToPortfolio(ctx) error
+    SubscribeToSessionEvents(ctx) error
+    
+    // Channels
     GetPriceUpdateChannel() <-chan PriceUpdate
     GetOrderUpdateChannel() <-chan OrderUpdate
     GetPortfolioUpdateChannel() <-chan PortfolioUpdate
+    
     SetStateChannels(stateChannel chan<- bool, contextIDChannel chan<- string)
-    Close() error
 }
 ```
 
-**Purpose**: Real-time streaming data  
-**Used by**: Live trading systems  
-**Implemented by**: `SaxoWebSocketClient`
+**Key change in v0.4.0**: `SubscribeToPrices` now accepts UICs directly as strings ("21", "31") or ticker names.
 
----
+## Generic Types
 
-## Generic Data Types
+### OrderRequest (BREAKING CHANGE in v0.4.0)
+```go
+type OrderRequest struct {
+    AccountKey string      // NEW: Required field
+    Instrument Instrument
+    Side       string      // "Buy" or "Sell"
+    Size       int
+    Price      float64
+    OrderType  string      // "Market", "Limit", "StopIfTraded"
+    Duration   string      // "DayOrder", "GoodTillDate"
+}
+```
 
 ### Instrument
 ```go
 type Instrument struct {
-    Ticker      string  // Human-readable symbol (e.g., "EURUSD")
-    Exchange    string  // Market or exchange
-    AssetType   string  // "FxSpot", "CfdOnFutures", etc.
-    Identifier  int     // Broker-specific ID (UIC for Saxo)
-    Uic         int     // Alias for Identifier
-    Symbol      string  // Alternative symbol
-    Description string  // Full name
-    Currency    string  // Base currency
-    TickSize    float32 // Minimum price movement
-    Decimals    int     // Price precision
+    Ticker     string   // "EURUSD"
+    Identifier int      // UIC (Saxo-specific ID)
+    AssetType  string   // "FxSpot", "ContractFutures"
+    Exchange   string
+    Currency   string
+    TickSize   float64
+    Decimals   int
 }
 ```
 
-### OrderRequest
+### PriceUpdate
 ```go
-type OrderRequest struct {
-    Instrument Instrument
-    Side       string   // "Buy" or "Sell"
-    Size       int      // Position size
-    Price      float64  // Limit/stop price
-    OrderType  string   // "Limit", "Market", "StopIfTraded"
-    Duration   string   // "GoodTillDate", "DayOrder"
+type PriceUpdate struct {
+    Ticker    string
+    Bid       float64
+    Ask       float64
+    Mid       float64
+    Timestamp time.Time
 }
 ```
 
-### OrderResponse
-```go
-type OrderResponse struct {
-    OrderID   string
-    Status    string
-    Timestamp string
-}
+## Layer Architecture
+
+```
+Application Code (broker-agnostic)
+         ↓
+Generic Interfaces (BrokerClient, AuthClient, WebSocketClient)
+         ↓
+Conversion Layer (convertToSaxoOrder, convertFromSaxoResponse)
+         ↓
+Saxo-Specific Types (SaxoOrderRequest, SaxoBalance)
+         ↓
+Saxo Bank OpenAPI
 ```
 
-### LiveOrder
-```go
-type LiveOrder struct {
-    OrderID       string
-    Ticker        string
-    Side          string
-    Size          int
-    Price         float64
-    OrderType     string
-    Status        string
-    FilledSize    int
-    RemainingSize int
-    OrderTime     time.Time
-}
-```
+## Implementation Pattern
 
----
-
-## Conversion Pattern
-
-All public methods in `SaxoBrokerClient` follow this pattern:
+## Implementation Pattern
 
 ```go
+// Public method (generic interface)
 func (sbc *SaxoBrokerClient) PlaceOrder(ctx context.Context, req OrderRequest) (*OrderResponse, error) {
-    // STEP 1: Validate authentication
+    // Validate
     if !sbc.authClient.IsAuthenticated() {
         return nil, fmt.Errorf("not authenticated")
     }
-
-    // STEP 2: Convert generic → Saxo-specific
-    saxoReq, err := sbc.convertToSaxoOrder(req)
-    if err != nil {
-        return nil, err
-    }
-
-    // STEP 3: Marshal to JSON
-    reqBody, err := json.Marshal(saxoReq)
-
-    // STEP 4: Call Saxo API
-    resp, err := sbc.doRequest(ctx, httpReq)
-
-    // STEP 5: Parse Saxo response
-    var saxoResp SaxoOrderResponse
-    json.NewDecoder(resp.Body).Decode(&saxoResp)
-
-    // STEP 6: Convert Saxo-specific → generic
-    genericResp := sbc.convertFromSaxoResponse(saxoResp)
-
-    return genericResp, nil
+    
+    // Convert generic → Saxo-specific
+    saxoReq := convertToSaxoOrder(req)
+    
+    // Call Saxo API
+    resp := callSaxoAPI(saxoReq)
+    
+    // Convert Saxo-specific → generic
+    return convertFromSaxoResponse(resp), nil
 }
 ```
 
-**Benefits**:
-- Generic interface never changes (stable API for clients)
-- Saxo-specific details isolated in conversion functions
-- Easy to add new brokers (implement same interfaces)
-- Type-safe conversions with clear error handling
-
----
-
-## OAuth2 Flow
+## OAuth Flow
 
 ```
-┌─────────────┐
-│   Client    │
-│ Application │
-└──────┬──────┘
-       │
-       │ 1. Login()
-       │
-┌──────▼──────────┐
-│  SaxoAuthClient │
-└──────┬──────────┘
-       │
-       │ 2. GenerateAuthURL()
-       │
-┌──────▼─────────────────┐
-│  User Browser Login    │
-│  (Saxo authorization)  │
-└──────┬─────────────────┘
-       │
-       │ 3. Redirect with code
-       │
-┌──────▼──────────┐
-│ ExchangeCode    │
-│  ForToken()     │
-└──────┬──────────┘
-       │
-       │ 4. Store token
-       │
-┌──────▼──────────┐
-│ FileTokenStorage│
-│  SaveToken()    │
-└──────┬──────────┘
-       │
-       │ 5. Start refresh keeper
-       │
-┌──────▼────────────────┐
-│ StartAuthentication   │
-│      Keeper()         │
-│  (background refresh) │
-└───────────────────────┘
+1. authClient.Login()
+2. Browser opens → User authenticates
+3. Token saved to data/saxo_token.bin
+4. StartAuthenticationKeeper() → Auto-refresh every 58min
+5. StartTokenEarlyRefresh() → Auto-refresh every 18min (WebSocket)
 ```
-
-**Token Refresh Strategy**:
-- Automatic refresh before token expiration
-- Early refresh for WebSocket context ID changes
-- Persistent storage in filesystem
-- Thread-safe token access
-
----
 
 ## WebSocket Architecture
 
@@ -327,73 +258,22 @@ func (sbc *SaxoBrokerClient) PlaceOrder(ctx context.Context, req OrderRequest) (
                    └───────────────────┘
 ```
 
-**Features**:
-- Automatic reconnection with exponential backoff
-- Heartbeat monitoring
-- Subscription management across reconnections
-- Message parsing and routing
-- Thread-safe channel operations
+**Key feature**: Automatic reconnection with subscription recovery.
 
----
+## Thread Safety
 
-## Error Handling Strategy
+- Token access: mutex-protected
+- WebSocket channels: goroutine-safe
+- Subscription map: mutex-protected
+- HTTP client: reused (connection pooling)
 
-### Authentication Errors
-```go
-if !sbc.authClient.IsAuthenticated() {
-    return nil, fmt.Errorf("not authenticated with broker")
-}
-```
+## Multi-Broker Pattern
 
-### Conversion Errors
-```go
-if req.Instrument.Identifier == 0 {
-    return saxoReq, fmt.Errorf("instrument %s is not enriched - Identifier (UIC) is missing", req.Instrument.Ticker)
-}
-```
-
-### API Errors
-```go
-if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-    return nil, sbc.handleErrorResponse(resp)
-}
-```
-
-### WebSocket Errors
-```go
-// Automatic reconnection
-if err := ws.reconnect(ctx); err != nil {
-    ws.logger.Printf("Failed to reconnect: %v", err)
-    // Retry with backoff
-}
-```
-
----
-
-## Multi-Broker Support Pattern
-
-With this architecture, adding a new broker is straightforward:
+Same interface works with any broker:
 
 ```go
-// 1. Create new adapter repository (e.g., ibkr-adapter)
-type IBKRBrokerClient struct {
-    // IBKR-specific fields
-}
-
-// 2. Implement the same interfaces
-func (ibc *IBKRBrokerClient) PlaceOrder(ctx context.Context, req OrderRequest) (*OrderResponse, error) {
-    // Convert generic → IBKR format
-    ibkrReq := convertToIBKROrder(req)
-    
-    // Call IBKR API
-    ibkrResp := callIBKRAPI(ibkrReq)
-    
-    // Convert IBKR → generic
-    return convertFromIBKRResponse(ibkrResp), nil
-}
-
-// 3. Use in trading application
 var broker BrokerClient
+
 switch config.Broker {
 case "saxo":
     broker = saxo.NewSaxoBrokerClient(authClient, logger)
@@ -401,102 +281,80 @@ case "ibkr":
     broker = ibkr.NewIBKRBrokerClient(authClient, logger)
 }
 
-// Same code works for any broker!
+// Same code, any broker
 broker.PlaceOrder(ctx, order)
 ```
 
-**Benefits**:
-- Trading strategies remain broker-agnostic
-- Add/remove brokers without changing strategy code
-- Test with different brokers easily
-- Compare broker execution quality
+## v0.4.0 Migration Guide
 
----
+### Breaking Changes
 
-## Thread Safety
+**1. OrderRequest requires AccountKey**
 
-### Concurrent Access Patterns
+Before:
+```go
+order := OrderRequest{
+    Instrument: Instrument{Ticker: "EURUSD", Identifier: 21, AssetType: "FxSpot"},
+    Side: "Buy",
+    Size: 1000,
+}
+```
 
-**SaxoAuthClient**:
-- Token access protected by mutex
-- Refresh operations atomic
-- Thread-safe HTTP client
+After:
+```go
+accounts, _ := brokerClient.GetAccounts(ctx)
+accountKey := accounts.Data[0].AccountKey
 
-**SaxoWebSocketClient**:
-- Channel writes protected by mutex
-- Subscription map protected
-- Reconnection state atomic
+order := OrderRequest{
+    AccountKey: accountKey,  // NEW: Required
+    Instrument: Instrument{Ticker: "EURUSD", Identifier: 21, AssetType: "FxSpot"},
+    Side: "Buy",
+    Size: 1000,
+}
+```
 
-**Message Handling**:
-- Channels for async communication
-- No shared mutable state
-- Context-based cancellation
+**2. WebSocket SubscribeToPrices accepts UICs directly**
 
----
+Before (required instrument mapping):
+```go
+wsClient.RegisterInstruments(instruments)
+wsClient.SubscribeToPrices(ctx, []string{"EURUSD", "USDJPY"})
+```
 
-## Testing Strategy
+After (UICs as strings work directly):
+```go
+wsClient.SubscribeToPrices(ctx, []string{"21", "31", "1"})
+// Creates automatic mapping: UIC 21 → ticker "21"
+```
 
-### Unit Tests
-- Mock AuthClient for testing BrokerClient
-- Mock HTTP server for testing API calls
-- Mock WebSocket server for testing streaming
+### Examples Updated
 
-### Integration Tests
-- Skipped by default (require real credentials)
-- Run with `-integration` flag when needed
-- Use SIM environment for safety
+All examples (`basic_auth`, `place_order`, `websocket_prices`) work with v0.4.0.
 
-### Test Coverage
-- Core operations: 100% covered
-- Error handling: Comprehensive
-- Edge cases: WebSocket reconnection, token refresh
+## Testing
 
----
+```bash
+# Unit tests
+go test ./adapter/...
 
-## Performance Considerations
+# Integration tests (requires credentials)
+export SAXO_ENVIRONMENT=sim
+export SAXO_CLIENT_ID=your_id
+export SAXO_CLIENT_SECRET=your_secret
+go test ./adapter -v -run Integration
+```
 
-### Token Caching
-- In-memory token storage
-- File persistence for restarts
-- Lazy refresh (only when needed)
+## Performance
 
-### WebSocket Efficiency
-- Single connection for multiple subscriptions
-- Message batching
-- Heartbeat-based keepalive
-
-### HTTP Connection Pooling
-- OAuth2 HTTP client reuse
-- Keep-alive connections
-- Request timeout management
-
----
-
-## Future Enhancements
-
-### Planned Features
-- [ ] Rate limiting protection
-- [ ] Circuit breaker for API failures
-- [ ] Metrics and monitoring hooks
-- [ ] Request/response logging
-- [ ] Retry with backoff for transient errors
-
-### Optional Components
-- [ ] Fix instrument_adapter.go (enrichment service)
-- [ ] Add historical data caching
-- [ ] Add order validation rules
-- [ ] Add position reconciliation
-
----
+- Token caching: in-memory + file persistence
+- HTTP connection pooling: automatic
+- WebSocket: single connection for all subscriptions
+- Message batching: 1-second refresh rate
 
 ## Summary
 
-This architecture achieves:
-✅ **Clean separation** between generic and Saxo-specific code  
-✅ **Multi-broker support** through interface abstraction  
-✅ **Type safety** with compile-time guarantees  
-✅ **Testability** through dependency injection  
-✅ **Maintainability** with clear layer boundaries  
-✅ **Extensibility** for adding new brokers or features  
-
-The adapter provides a **professional, production-ready foundation** for algorithmic trading systems.
+✅ Clean interfaces for multi-broker support  
+✅ Type-safe conversions  
+✅ Automatic authentication  
+✅ WebSocket with auto-reconnection  
+✅ Production-ready for algorithmic trading

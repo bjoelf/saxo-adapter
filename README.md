@@ -4,11 +4,11 @@
 
 ## ⚠️ Pre-1.0 Status: Stable Development
 
-**Current Version:** `v0.3.0` 🎉  
-**Release Date:** November 26, 2025  
+**Current Version:** `v0.4.0` 🎉  
+**Release Date:** December 2, 2025  
 **Status:** Core features stable, API refinement ongoing
 
-> **Note:** This library is in the **0.x stable phase**. Core interfaces are now stable for production use. Minor additions may occur before v1.0. Pin to minor versions in production: `require github.com/bjoelf/saxo-adapter v0.3.x`
+> **Note:** This library is in the **0.x stable phase**. 
 
 ### What Works ✅
 
@@ -42,78 +42,47 @@
 - Multi-account operations
 - Complex order types (OCO, brackets)
 
-#### 🔵 Planned (Not yet implemented)
-
-- Margin calculation methods
-- Risk analysis features
-- Multi-leg order support
-- Automated trading strategies
-
-### Path to v1.0.0 🎯
-
-**Target:** Q2 2026 (after 6+ months of production validation)
-
-We will release v1.0.0 when:
-
-- Core interfaces stable for 6+ months ✅ (achieved in v0.3.0)
-- Multiple production deployments validated (in progress)
-- Comprehensive test coverage (>80%) (current: ~70%)
-- Complete documentation with examples
-- Community feedback incorporated
-
-**Roadmap:**
-
-- ✅ `v0.3.0` (Nov 2025) - **COMPLETE** - Core interfaces stabilized, all 4 WebSocket subscriptions, ModifyOrder, historical data, GetNetPositions, GetClosedPositions
-- `v0.4.0` (Jan 2026) - Comprehensive examples, additional conveniences based on user feedback
-- `v0.5.0` (Feb 2026) - Add margin calculation methods, risk analysis
-- `v0.6.0` (Mar 2026) - Feature freeze, stabilization period, test coverage to 90%
-- `v1.0.0-rc1` (Apr 2026) - Release candidate testing
-- `v1.0.0` (May 2026) - Full stability guarantees begin
-
-### 💡 Feature Requests Welcome
-
-We're actively gathering requirements for the v1.0 API. If you need specific broker operations:
-
-**Please open an issue with:**
-
-- Feature description (e.g., "Need margin calculation for futures")
-- Use case (why you need it)
-- Expected interface (how you'd like to use it)
-
-This helps us design the right abstractions before locking down the API in v1.0.0.
-
-**Open an issue:** <https://github.com/bjoelf/saxo-adapter/issues/new>
-
 ## Installation
 
 ```bash
 go get github.com/bjoelf/saxo-adapter@latest
 ```
 
-## Quick Start
+## Configuration to get examples running
 
-```go
-package main
+1, You need a developer account with Saxo Bank
+2, You need to create a client (for demo enviroment)
 
-import (
-    "log"
-    saxo "github.com/bjoelf/saxo-adapter/adapter"
-)
+For details in client creation:
+<https://github.com/SaxoBank/openapi-samples-csharp/tree/master/authentication/Authentication_CodeFlow>
 
-func main() {
-    logger := log.Default()
-    
-    // Create Saxo broker services (auth + broker client)
-    authClient, brokerClient, err := saxo.CreateBrokerServices(logger)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // Use the clients...
-    _ = authClient
-    _ = brokerClient
-}
+
+### Loading Environment Variables
+
+```bash
+cd /home/bjorn/dev/saxo-adapter
+
+# Create .env file with your credentials
+cat > .env << 'EOF'
+
+SAXO_ENVIRONMENT=sim
+SAXO_CLIENT_ID="your_client_id_here"
+SAXO_CLIENT_SECRET="your_client_secret_here"
+
+EOF
+
+# Load variables into your shell
+export $(grep -v '^#' .env | xargs)
+
+# Verify they're loaded
+echo "Environment: $SAXO_ENVIRONMENT"
+echo "Client ID: $SAXO_CLIENT_ID"
+
+# Now run examples
+go run ./examples/basic_auth/main.go
 ```
+
+**Note:** The `.env` file is for your convenience. Go programs don't automatically load it - you must export the variables to your shell before running examples or tests.
 
 ## Features
 
@@ -136,88 +105,6 @@ func main() {
 - Order status notifications
 - Portfolio balance updates
 - Robust reconnection handling
-
-## Configuration
-
-Set these environment variables:
-
-```bash
-# Environment (sim or live)
-export SAXO_ENVIRONMENT=sim
-
-# Credentials
-export SAXO_CLIENT_ID=your_client_id
-export SAXO_CLIENT_SECRET=your_secret
-```
-
-### Loading Environment Variables
-
-**Option 1: Export from .env File (Recommended)**
-
-```bash
-# Create .env file with your credentials
-cat > .env << 'EOF'
-SAXO_ENVIRONMENT=sim
-SAXO_CLIENT_ID="your_client_id_here"
-SAXO_CLIENT_SECRET="your_client_secret_here"
-EOF
-
-# Load variables into your shell
-export $(grep -v '^#' .env | xargs)
-
-# Verify they're loaded
-echo "Environment: $SAXO_ENVIRONMENT"
-echo "Client ID: $SAXO_CLIENT_ID"
-
-# Now run examples
-go run ./examples/basic_auth/main.go
-```
-
-**Option 2: Export Manually**
-
-```bash
-export SAXO_ENVIRONMENT=sim
-export SAXO_CLIENT_ID="your_client_id_here"
-export SAXO_CLIENT_SECRET="your_client_secret_here"
-
-go run ./examples/basic_auth/main.go
-```
-
-**Note:** Go programs don't automatically load `.env` files. You must export the variables to your shell before running examples or tests.
-
-### Loading Environment Variables
-
-**Option 1: Export Manually (Recommended for testing)**
-
-```bash
-cd /home/bjorn/dev/saxo-adapter
-
-# Load variables from .env into your shell
-source <(grep -v '^#' .env | sed 's/^/export /')
-
-# Or export individually
-export SAXO_ENVIRONMENT=sim
-export SAXO_CLIENT_ID="your_client_id_here"
-export SAXO_CLIENT_SECRET="your_client_secret_here"
-
-# Now run examples
-go run ./examples/basic_auth/main.go
-```
-
-**Option 2: Use a .env File Template**
-
-```bash
-# Create your .env file from the template
-cp .env.example .env
-
-# Edit .env with your actual credentials
-nano .env
-
-# Load into shell before running examples
-export $(grep -v '^#' .env | xargs)
-```
-
-**Note:** The `.env` file is for your convenience. Go programs don't automatically load it - you must export the variables to your shell before running examples or tests.
 
 ## Architecture
 

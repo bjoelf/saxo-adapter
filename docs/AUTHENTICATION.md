@@ -1,10 +1,7 @@
 # Saxo Adapter - Authentication Guide
 
-## Overview
+## Please first see examples folder with some sample usage. No coding needed.
 
-The saxo-adapter provides **automatic CLI-friendly OAuth authentication** with zero manual token generation. Just call `Login()` and your browser opens automatically!
-
-## Authentication Flow
 
 ### 1. **First-Time Authentication (CLI)**
 
@@ -86,71 +83,6 @@ authClient.StartTokenEarlyRefresh(ctx, wsConnected, wsContextID)
 cd examples/basic_auth
 go run main.go
 # Browser opens, login, token saved
-```
-
-### **Remote VM/Server (Headless)**
-
-#### **Option 1: Pre-authenticate Locally**
-```bash
-# On your laptop
-cd fx-collector
-go run cmd/collector/main.go
-# Login via browser, token saved to data/saxo_token.bin
-
-# Upload token to VM
-scp data/saxo_token.bin user@vm:/app/fx-collector/data/
-
-# Run on VM (uses existing token)
-ssh user@vm
-cd /app/fx-collector
-./fx-collector  # No authentication needed - runs forever!
-```
-
-#### **Option 2: SSH with X11 Forwarding**
-```bash
-ssh -X user@vm
-cd /app/fx-collector
-./fx-collector
-# Browser opens on your local machine via X11
-```
-
-#### **Option 3: Manual URL Copy/Paste**
-```bash
-ssh user@vm
-cd /app/fx-collector
-./fx-collector
-# Copy URL from terminal output
-# Paste into browser on your laptop
-# After login, copy authorization code from redirect URL
-# Paste code back into terminal
-```
-
-### **Production Deployment**
-
-```bash
-# 1. Authenticate locally (one-time setup)
-./fx-collector
-# Token saved to data/saxo_token.bin
-
-# 2. Deploy with token file
-scp data/saxo_token.bin deploy@prod-server:/app/data/
-scp .env deploy@prod-server:/app/
-
-# 3. Run as systemd service
-sudo systemctl start fx-collector
-# Runs 24/7, tokens auto-refresh
-```
-
-## Environment Variables
-
-```bash
-# Required
-export SAXO_ENVIRONMENT=sim        # or "live"
-export SAXO_CLIENT_ID=your_id
-export SAXO_CLIENT_SECRET=your_secret
-
-# Optional
-export PROVIDER=saxo               # Default: "saxo"
 ```
 
 ## Token Storage
@@ -330,16 +262,3 @@ go run main.go
 │ (Binary file)        │
 └──────────────────────┘
 ```
-
-## Summary
-
-**Key Features:**
-- ✅ **Zero manual work** - browser opens automatically
-- ✅ **Cross-platform** - Linux, macOS, Windows
-- ✅ **Token persistence** - authenticate once, run forever
-- ✅ **Auto-refresh** - tokens refresh in background
-- ✅ **WebSocket support** - automatic re-authorization
-- ✅ **Deployment-friendly** - works locally and on remote servers
-- ✅ **Junior-friendly** - just call `Login()` and it works!
-
-**No web server needed at runtime** - temporary server only runs during initial authentication.
