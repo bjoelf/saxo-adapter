@@ -56,10 +56,8 @@ type BrokerClient interface {
 	SearchInstruments(ctx context.Context, params InstrumentSearchParams) ([]Instrument, error)
 	GetInstrumentDetails(ctx context.Context, uics []int) ([]InstrumentDetail, error)
 	GetInstrumentPrices(ctx context.Context, uics []int, fieldGroups string) ([]InstrumentPriceInfo, error)
-}
 
-// MarketDataClient defines interface for market data operations
-type MarketDataClient interface {
+	// Market data operations (consolidated from MarketDataClient)
 	Subscribe(ctx context.Context, instruments []string) (<-chan PriceUpdate, error)
 	Unsubscribe(ctx context.Context, instruments []string) error
 	GetInstrumentPrice(ctx context.Context, instrument Instrument) (*PriceData, error)
@@ -86,7 +84,8 @@ type WebSocketClient interface {
 // ============================================================================
 
 // Instrument represents a tradeable instrument
-// This is a minimal structure - clients using this adapter should provide these fields
+// This is a minimal broker-agnostic structure - clients may use enriched domain types
+// The adapter layer translates between domain-specific and broker-specific types
 type Instrument struct {
 	Ticker      string
 	Exchange    string
@@ -96,7 +95,7 @@ type Instrument struct {
 	Symbol      string
 	Description string
 	Currency    string
-	TickSize    float64 // Changed from float32 to float64 for precision
+	TickSize    float64
 	Decimals    int
 }
 
