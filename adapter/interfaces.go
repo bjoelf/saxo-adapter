@@ -48,6 +48,8 @@ type BrokerClient interface {
 	// Account and balance queries - generic, broker-agnostic
 	GetBalance(ctx context.Context) (*Balance, error)
 	GetAccounts(ctx context.Context) (*Accounts, error)
+	GetMarginOverview(ctx context.Context, clientKey string) (*MarginOverview, error)
+	GetClientInfo(ctx context.Context) (*ClientInfo, error)
 	GetTradingSchedule(ctx context.Context, params TradingScheduleParams) (*TradingSchedule, error)
 
 	// Instrument search and metadata (Tier 2 - The Usual Suspects)
