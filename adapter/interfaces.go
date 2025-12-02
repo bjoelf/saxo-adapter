@@ -102,6 +102,7 @@ type Instrument struct {
 // OrderRequest represents a broker order request
 type OrderRequest struct {
 	Instrument Instrument
+	AccountKey string // Account identifier (required for most brokers)
 	Side       string // "Buy" or "Sell"
 	Size       int
 	Price      float64

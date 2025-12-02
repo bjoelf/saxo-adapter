@@ -60,7 +60,19 @@ func main() {
 	logger.Println("✅ Authenticated successfully")
 	logger.Println()
 
-	// Step 4: Get current balance using generic BrokerClient interface
+	// Step 4: Get accounts to retrieve AccountKey
+	accounts, err := saxoBrokerClient.GetAccounts(ctx)
+	if err != nil {
+		logger.Fatalf("Failed to get accounts: %v", err)
+	}
+	if len(accounts.Data) == 0 {
+		logger.Fatalf("No accounts found")
+	}
+	accountKey := accounts.Data[0].AccountKey
+	logger.Printf("Using account: %s", accountKey)
+	logger.Println()
+
+	// Step 5: Get current balance
 	balance, err := saxoBrokerClient.GetBalance(ctx)
 	if err != nil {
 		logger.Fatalf("Failed to get balance: %v", err)
@@ -68,9 +80,10 @@ func main() {
 	fmt.Printf("💰 Current Balance: %.2f %s\n", balance.TotalValue, balance.Currency)
 	logger.Println()
 
-	// Step 5: Prepare order using generic Instrument and OrderRequest types
+	// Step 6: Prepare order using generic Instrument and OrderRequest types
 	// These are broker-agnostic - same code works with any broker!
 	order := saxo.OrderRequest{
+		AccountKey: accountKey, // Required: account identifier
 		Instrument: saxo.Instrument{
 			Ticker:     "EURUSD",
 			Identifier: 21, // UIC for EURUSD (broker-specific ID)
@@ -90,7 +103,7 @@ func main() {
 	fmt.Printf("  Duration:   %s\n", order.Duration)
 	logger.Println()
 
-	// Step 6: Place order using generic BrokerClient.PlaceOrder()
+	// Step 7: Place order using generic BrokerClient.PlaceOrder()
 	// This method signature is the same for ALL brokers!
 	logger.Println("Placing order...")
 	response, err := brokerClient.PlaceOrder(ctx, order)
@@ -104,11 +117,11 @@ func main() {
 	fmt.Printf("  Status:     %s\n", response.Status)
 	logger.Println()
 
-	// Step 7: Wait for order to process
+	// Step 8: Wait for order to process
 	logger.Println("Waiting for order to process...")
 	time.Sleep(2 * time.Second)
 
-	// Step 8: Get open orders using generic BrokerClient.GetOpenOrders()
+	// Step 9: Get open orders using generic BrokerClient.GetOpenOrders()
 	logger.Println("Fetching open orders...")
 	openOrders, err := brokerClient.GetOpenOrders(ctx)
 	if err != nil {
@@ -130,7 +143,6 @@ func main() {
 	logger.Println("  - BrokerClient.PlaceOrder() interface is the same for all brokers")
 	logger.Println("  - OrderResponse is generic - no Saxo-specific details leaked")
 	logger.Println("  - Same code works with Interactive Brokers, Alpaca, etc.")
-	logger.Println("  - Saxo-specific methods (GetBalance) require concrete type")
 	logger.Println()
 	logger.Println("Next steps:")
 	logger.Println("  - Check your broker account for the executed order")

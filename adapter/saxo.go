@@ -682,10 +682,11 @@ func (sbc *SaxoBrokerClient) GetBalance(ctx context.Context) (*Balance, error) {
 // TODO: cleanup this is final order conversion logic. Remove all other conversion code.
 func (sbc *SaxoBrokerClient) convertToSaxoOrder(req OrderRequest) (SaxoOrderRequest, error) {
 	saxoReq := SaxoOrderRequest{
-		BuySell:   req.Side,                 // "Buy" or "Sell"
-		Amount:    float64(req.Size),        // Order size as float64
-		OrderType: req.OrderType,            // "Market", "Limit", "Stop"
-		AssetType: req.Instrument.AssetType, // Use enriched AssetType from futures.json
+		AccountKey: req.AccountKey,           // Required account key
+		BuySell:    req.Side,                 // "Buy" or "Sell"
+		Amount:     float64(req.Size),        // Order size as float64
+		OrderType:  req.OrderType,            // "Market", "Limit", "Stop"
+		AssetType:  req.Instrument.AssetType, // Use enriched AssetType from futures.json
 	}
 
 	// Set price for non-market orders

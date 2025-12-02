@@ -555,21 +555,35 @@ func (sm *SubscriptionManager) resetSubscription(oldRef, newRef string, subscrip
 
 // getUicsForInstruments extracts UICs from ticker list using dynamic mapping
 // CRITICAL FIX: No more hardcoded UICs - uses RegisterInstruments() mapping from fx.json
+// Also supports direct UIC strings (e.g., "21", "31") for simple examples
+// When UICs are passed directly, creates bidirectional mapping: UIC → "21" (ticker is UIC string)
 func (sm *SubscriptionManager) getUicsForInstruments(instruments []string) []int {
-	sm.client.mappingMu.RLock()
-	defer sm.client.mappingMu.RUnlock()
+	sm.client.mappingMu.Lock()
+	defer sm.client.mappingMu.Unlock()
 
 	var uics []int
-	for _, ticker := range instruments {
-		if uic, exists := sm.client.tickerToUic[ticker]; exists {
+	for _, instrument := range instruments {
+		// First, try to parse as direct UIC (numeric string)
+		if uic, err := strconv.Atoi(instrument); err == nil {
 			uics = append(uics, uic)
+
+			// Create reverse mapping: UIC → ticker (ticker is the UIC string itself)
+			// This allows price messages to be converted without predefined mappings
+			sm.client.uicToTicker[uic] = instrument
+			sm.client.tickerToUic[instrument] = uic
+
+			sm.client.logger.Printf("  Using direct UIC: %s -> %d (created mapping)", instrument, uic)
+		} else if uic, exists := sm.client.tickerToUic[instrument]; exists {
+			// Otherwise, look up ticker in mapping
+			uics = append(uics, uic)
+			sm.client.logger.Printf("  Mapped ticker: %s -> %d", instrument, uic)
 		} else {
-			sm.client.logger.Printf("Warning: No UIC mapping for ticker %s (RegisterInstruments not called?)", ticker)
+			sm.client.logger.Printf("Warning: No UIC mapping for ticker %s (RegisterInstruments not called?)", instrument)
 		}
 	}
 
 	if len(uics) > 0 {
-		sm.client.logger.Printf("SubscriptionManager: Mapped %d tickers to UICs: %v", len(uics), uics)
+		sm.client.logger.Printf("SubscriptionManager: Mapped %d instruments to UICs: %v", len(instruments), uics)
 	}
 
 	return uics

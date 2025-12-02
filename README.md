@@ -150,6 +150,75 @@ export SAXO_CLIENT_ID=your_client_id
 export SAXO_CLIENT_SECRET=your_secret
 ```
 
+### Loading Environment Variables
+
+**Option 1: Export from .env File (Recommended)**
+
+```bash
+# Create .env file with your credentials
+cat > .env << 'EOF'
+SAXO_ENVIRONMENT=sim
+SAXO_CLIENT_ID="your_client_id_here"
+SAXO_CLIENT_SECRET="your_client_secret_here"
+EOF
+
+# Load variables into your shell
+export $(grep -v '^#' .env | xargs)
+
+# Verify they're loaded
+echo "Environment: $SAXO_ENVIRONMENT"
+echo "Client ID: $SAXO_CLIENT_ID"
+
+# Now run examples
+go run ./examples/basic_auth/main.go
+```
+
+**Option 2: Export Manually**
+
+```bash
+export SAXO_ENVIRONMENT=sim
+export SAXO_CLIENT_ID="your_client_id_here"
+export SAXO_CLIENT_SECRET="your_client_secret_here"
+
+go run ./examples/basic_auth/main.go
+```
+
+**Note:** Go programs don't automatically load `.env` files. You must export the variables to your shell before running examples or tests.
+
+### Loading Environment Variables
+
+**Option 1: Export Manually (Recommended for testing)**
+
+```bash
+cd /home/bjorn/dev/saxo-adapter
+
+# Load variables from .env into your shell
+source <(grep -v '^#' .env | sed 's/^/export /')
+
+# Or export individually
+export SAXO_ENVIRONMENT=sim
+export SAXO_CLIENT_ID="your_client_id_here"
+export SAXO_CLIENT_SECRET="your_client_secret_here"
+
+# Now run examples
+go run ./examples/basic_auth/main.go
+```
+
+**Option 2: Use a .env File Template**
+
+```bash
+# Create your .env file from the template
+cp .env.example .env
+
+# Edit .env with your actual credentials
+nano .env
+
+# Load into shell before running examples
+export $(grep -v '^#' .env | xargs)
+```
+
+**Note:** The `.env` file is for your convenience. Go programs don't automatically load it - you must export the variables to your shell before running examples or tests.
+
 ## Architecture
 
 This adapter follows clean architecture principles with a focus on **interface stability during pre-1.0 development**.
