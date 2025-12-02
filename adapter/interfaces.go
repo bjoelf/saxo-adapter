@@ -249,6 +249,26 @@ type TradingSchedule = SaxoTradingSchedule
 // Type alias to SaxoTradingPhase - broker-agnostic naming
 type TradingPhase = SaxoTradingPhase
 
+// OpenPositionsResponse represents open positions response
+// Type alias to SaxoOpenPositionsResponse - broker-agnostic naming
+type OpenPositionsResponse = SaxoOpenPositionsResponse
+
+// ClosedPositionsResponse represents closed positions response
+// Type alias to SaxoClosedPositionsResponse - broker-agnostic naming
+type ClosedPositionsResponse = SaxoClosedPositionsResponse
+
+// NetPositionsResponse represents net positions response
+// Type alias to SaxoNetPositionsResponse - broker-agnostic naming
+type NetPositionsResponse = SaxoNetPositionsResponse
+
+// MarginOverview represents margin breakdown by instrument group
+// Type alias to SaxoMarginOverview - broker-agnostic naming
+type MarginOverview = SaxoMarginOverview
+
+// ClientInfo represents client/user information
+// Type alias to SaxoClientInfo - broker-agnostic naming
+type ClientInfo = SaxoClientInfo
+
 // OrderUpdate represents real-time order status changes
 type OrderUpdate struct {
 	OrderId    string    `json:"order_id"`
