@@ -226,94 +226,28 @@ type AccountInfo struct {
 }
 
 // Balance represents generic account balance information
-// Schema identical to SaxoBalance - generic naming for broker-agnostic use
-type Balance struct {
-	CalculationReliability           string  `json:"CalculationReliability"`
-	CashAvailableForTrading          float64 `json:"CashAvailableForTrading"`
-	CashBalance                      float64 `json:"CashBalance"`
-	CashBlocked                      float64 `json:"CashBlocked"`
-	ChangesScheduled                 bool    `json:"ChangesScheduled"`
-	ClosedPositionsCount             int     `json:"ClosedPositionsCount"`
-	CollateralAvailable              float64 `json:"CollateralAvailable"`
-	CorporateActionUnrealizedAmounts float64 `json:"CorporateActionUnrealizedAmounts"`
-	CostToClosePositions             float64 `json:"CostToClosePositions"`
-	Currency                         string  `json:"Currency"`
-	CurrencyDecimals                 int     `json:"CurrencyDecimals"`
-	InitialMargin                    struct {
-		CollateralAvailable          float64 `json:"CollateralAvailable"`
-		MarginAvailable              float64 `json:"MarginAvailable"`
-		MarginCollateralNotAvailable float64 `json:"MarginCollateralNotAvailable"`
-		MarginUsedByCurrentPositions float64 `json:"MarginUsedByCurrentPositions"`
-		MarginUtilizationPct         float64 `json:"MarginUtilizationPct"`
-		NetEquityForMargin           float64 `json:"NetEquityForMargin"`
-		OtherCollateralDeduction     float64 `json:"OtherCollateralDeduction"`
-	} `json:"InitialMargin"`
-	IntradayMarginDiscount            float64 `json:"IntradayMarginDiscount"`
-	IsPortfolioMarginModelSimple      bool    `json:"IsPortfolioMarginModelSimple"`
-	MarginAndCollateralUtilizationPct float64 `json:"MarginAndCollateralUtilizationPct"`
-	MarginAvailableForTrading         float64 `json:"MarginAvailableForTrading"`
-	MarginCollateralNotAvailable      float64 `json:"MarginCollateralNotAvailable"`
-	MarginExposureCoveragePct         float64 `json:"MarginExposureCoveragePct"`
-	MarginNetExposure                 float64 `json:"MarginNetExposure"`
-	MarginUsedByCurrentPositions      float64 `json:"MarginUsedByCurrentPositions"`
-	MarginUtilizationPct              float64 `json:"MarginUtilizationPct"`
-	NetEquityForMargin                float64 `json:"NetEquityForMargin"`
-	NetPositionsCount                 int     `json:"NetPositionsCount"`
-	NonMarginPositionsValue           float64 `json:"NonMarginPositionsValue"`
-	OpenIpoOrdersCount                int     `json:"OpenIpoOrdersCount"`
-	OpenPositionsCount                int     `json:"OpenPositionsCount"`
-	OptionPremiumsMarketValue         float64 `json:"OptionPremiumsMarketValue"`
-	OrdersCount                       int     `json:"OrdersCount"`
-	OtherCollateral                   float64 `json:"OtherCollateral"`
-	SettlementValue                   float64 `json:"SettlementValue"`
-	SpendingPowerDetail               struct {
-		Current float64 `json:"Current"`
-		Maximum float64 `json:"Maximum"`
-	} `json:"SpendingPowerDetail"`
-	TotalValue                       float64 `json:"TotalValue"`
-	TransactionsNotBooked            float64 `json:"TransactionsNotBooked"`
-	TriggerOrdersCount               int     `json:"TriggerOrdersCount"`
-	UnrealizedMarginClosedProfitLoss float64 `json:"UnrealizedMarginClosedProfitLoss"`
-	UnrealizedMarginOpenProfitLoss   float64 `json:"UnrealizedMarginOpenProfitLoss"`
-	UnrealizedMarginProfitLoss       float64 `json:"UnrealizedMarginProfitLoss"`
-	UnrealizedPositionsValue         float64 `json:"UnrealizedPositionsValue"`
-}
+// Type alias to SaxoBalance - broker-agnostic naming
+type Balance = SaxoBalance
 
 // Account represents a trading account
-// Schema identical to SaxoAccountInfo - generic naming for broker-agnostic use
-type Account struct {
-	AccountKey                            string `json:"AccountKey"`
-	AccountType                           string `json:"AccountType"`
-	Currency                              string `json:"Currency"`
-	ClientKey                             string `json:"ClientKey"`
-	CanUseCashPositionsAsMarginCollateral bool   `json:"CanUseCashPositionsAsMarginCollateral"`
-}
+// Type alias to SaxoAccountInfo - broker-agnostic naming
+type Account = SaxoAccountInfo
 
 // Accounts represents a collection of trading accounts
-type Accounts struct {
-	Data []Account `json:"data"`
-}
+// Type alias to SaxoAccounts - broker-agnostic naming
+type Accounts = SaxoAccounts
 
 // TradingScheduleParams represents parameters for querying trading schedule
-type TradingScheduleParams struct {
-	Uic       int    `json:"uic"`
-	AssetType string `json:"asset_type"`
-}
+// Type alias to SaxoTradingScheduleParams - broker-agnostic naming
+type TradingScheduleParams = SaxoTradingScheduleParams
 
 // TradingSchedule represents market open/close times for an instrument
-// Schema identical to SaxoTradingSchedule - generic naming for broker-agnostic use
-type TradingSchedule struct {
-	Phases   []TradingPhase `json:"Phases"`
-	Sessions []TradingPhase `json:"Sessions"` // Alias for compatibility
-}
+// Type alias to SaxoTradingSchedule - broker-agnostic naming
+type TradingSchedule = SaxoTradingSchedule
 
 // TradingPhase represents a trading phase (open/close times)
-// Schema identical to SaxoTradingPhase - generic naming for broker-agnostic use
-type TradingPhase struct {
-	StartTime time.Time `json:"StartTime"`
-	EndTime   time.Time `json:"EndTime"`
-	State     string    `json:"State"` // "Open", "Closed", etc.
-}
+// Type alias to SaxoTradingPhase - broker-agnostic naming
+type TradingPhase = SaxoTradingPhase
 
 // OrderUpdate represents real-time order status changes
 type OrderUpdate struct {
