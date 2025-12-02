@@ -1097,8 +1097,3 @@ func (sbc *SaxoBrokerClient) GetInstrumentPrices(ctx context.Context, uics []int
 	sbc.logger.Printf("Retrieved prices for %d instruments", len(prices))
 	return prices, nil
 }
-
-// Compile-time interface checks to ensure SaxoBrokerClient implements required interfaces
-var (
-	_ MarketDataClient = (*SaxoBrokerClient)(nil)
-)
