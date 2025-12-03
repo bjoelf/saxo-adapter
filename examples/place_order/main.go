@@ -15,43 +15,19 @@ func main() {
 	logger := log.New(os.Stdout, "[ORDER-EXAMPLE] ", log.LstdFlags)
 
 	logger.Println("=== Saxo Adapter - Place Order Example ===")
-	logger.Println()
 	logger.Println("This example demonstrates broker-agnostic order placement")
 	logger.Println("using generic interfaces (BrokerClient, OrderRequest)")
-	logger.Println()
 
 	// Step 1: Create auth client
 	logger.Println("Creating authentication client...")
-
 	var authClient saxo.AuthClient
 	var err error
-
 	authClient, err = saxo.CreateSaxoAuthClient(logger)
 	if err != nil {
 		logger.Fatalf("Failed to create auth client: %v", err)
 	}
 
-	// Step 2: Create broker services (inject authClient)
-	logger.Println("Creating broker services...")
-
-	// CreateBrokerServices returns BrokerClient interface
-	brokerClientInterface, err := saxo.CreateBrokerServices(authClient, logger)
-	if err != nil {
-		logger.Fatalf("Failed to create broker services: %v", err)
-	}
-
-	// Type assert to concrete *SaxoBrokerClient to access Saxo-specific methods
-	// Generic BrokerClient interface only has core trading methods
-	// Saxo-specific methods like GetBalance() are on the concrete type
-	saxoBrokerClient, ok := brokerClientInterface.(*saxo.SaxoBrokerClient)
-	if !ok {
-		logger.Fatalf("Failed to cast to *SaxoBrokerClient")
-	}
-
-	// Use generic interface for broker-agnostic operations
-	var brokerClient saxo.BrokerClient = saxoBrokerClient
-
-	// Step 3: Authenticate using generic AuthClient interface
+	// Step 2: Authenticate using generic AuthClient interface
 	ctx := context.Background()
 	logger.Println("Authenticating...")
 	if err := authClient.Login(ctx); err != nil {
@@ -60,8 +36,19 @@ func main() {
 	logger.Println("✅ Authenticated successfully")
 	logger.Println()
 
+	// Step 3: Create broker services (inject authClient)
+	logger.Println("Creating broker services...")
+
+	// CreateBrokerServices returns BrokerClient interface
+	brokerClient, err := saxo.CreateBrokerServices(authClient, logger)
+	if err != nil {
+		logger.Fatalf("Failed to create broker services: %v", err)
+	}
+	logger.Println("✅ Broker services created successfully")
+	logger.Println()
+
 	// Step 4: Get accounts to retrieve AccountKey
-	accounts, err := saxoBrokerClient.GetAccounts(ctx)
+	accounts, err := brokerClient.GetAccounts(ctx)
 	if err != nil {
 		logger.Fatalf("Failed to get accounts: %v", err)
 	}
@@ -73,7 +60,7 @@ func main() {
 	logger.Println()
 
 	// Step 5: Get current balance
-	balance, err := saxoBrokerClient.GetBalance(ctx)
+	balance, err := brokerClient.GetBalance(ctx)
 	if err != nil {
 		logger.Fatalf("Failed to get balance: %v", err)
 	}

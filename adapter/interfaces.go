@@ -209,7 +209,7 @@ type PriceData struct {
 // HistoricalDataPoint represents OHLC historical data
 type HistoricalDataPoint struct {
 	Ticker string
-	Date   time.Time
+	Time   time.Time // Time of the data point (consistent with PriceUpdate)
 	Open   float64
 	High   float64
 	Low    float64

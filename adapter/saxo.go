@@ -44,7 +44,6 @@ type cachedHistoricalData struct {
 // All Saxo-specific details are handled internally
 type SaxoBrokerClient struct {
 	authClient AuthClient
-	httpClient *http.Client
 	baseURL    string
 	logger     *log.Logger
 
@@ -252,15 +251,10 @@ func (sbc *SaxoBrokerClient) ClosePosition(ctx context.Context, req ClosePositio
 	}
 
 	// Set headers
-	accessToken, err := sbc.authClient.GetAccessToken()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get access token: %w", err)
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+accessToken)
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	// Execute request
-	resp, err := sbc.httpClient.Do(httpReq)
+	// Execute request with OAuth2 auto-refresh
+	resp, err := sbc.doRequest(ctx, httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}

@@ -18,21 +18,19 @@ func main() {
 	logger := log.New(os.Stdout, "[WEBSOCKET-EXAMPLE] ", log.LstdFlags)
 
 	logger.Println("=== Saxo Adapter - WebSocket Price Subscription Example ===")
-	logger.Println()
 	logger.Println("This example demonstrates broker-agnostic real-time data streaming")
 	logger.Println("using the generic WebSocketClient interface")
-	logger.Println()
 
 	// Step 1: Create auth client
 	logger.Println("Creating authentication client...")
-
 	var authClient saxo.AuthClient
 	var err error
-
 	authClient, err = saxo.CreateSaxoAuthClient(logger)
 	if err != nil {
 		logger.Fatalf("Failed to create auth client: %v", err)
-	} // Step 2: Authenticate using generic AuthClient interface
+	}
+
+	// Step 2: Authenticate using generic AuthClient interface
 	ctx := context.Background()
 	logger.Println("Authenticating...")
 	if err := authClient.Login(ctx); err != nil {
@@ -42,14 +40,15 @@ func main() {
 	logger.Println()
 
 	// Step 3: Create WebSocket client using generic interface
+	logger.Println("Creating websocket client...")
+
 	// Note: We create using websocket package, but use via saxo.WebSocketClient interface
-	var wsClient saxo.WebSocketClient
-	wsClient = websocket.NewSaxoWebSocketClient(
+	wsClient := saxo.WebSocketClient(websocket.NewSaxoWebSocketClient(
 		authClient,
 		authClient.GetBaseURL(),
 		authClient.GetWebSocketURL(),
 		logger,
-	)
+	))
 
 	// Step 4: Connect using generic WebSocketClient.Connect()
 	logger.Println("Connecting to WebSocket...")

@@ -91,12 +91,6 @@ func (sbc *SaxoBrokerClient) GetInstrumentPrice(ctx context.Context, instrument 
 		return nil, fmt.Errorf("not authenticated with broker")
 	}
 
-	// Get access token
-	accessToken, err := sbc.authClient.GetAccessToken()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get access token: %w", err)
-	}
-
 	// Build request URL using enriched UIC and AssetType
 	requestURL := fmt.Sprintf("%s/chart/v1/charts?Uic=%d&AssetType=%s&Horizon=60",
 		sbc.baseURL, instrument.Uic, instrument.AssetType)
@@ -107,12 +101,8 @@ func (sbc *SaxoBrokerClient) GetInstrumentPrice(ctx context.Context, instrument 
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
-	// Set headers following Saxo API requirements
-	httpReq.Header.Set("Authorization", "Bearer "+accessToken)
-	httpReq.Header.Set("Accept", "application/json")
-
-	// Execute request
-	resp, err := sbc.httpClient.Do(httpReq)
+	// Execute request with OAuth2 auto-refresh
+	resp, err := sbc.doRequest(ctx, httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}
@@ -148,12 +138,6 @@ func (sbc *SaxoBrokerClient) GetAccountInfo(ctx context.Context) (*AccountInfo, 
 		return nil, fmt.Errorf("not authenticated with broker")
 	}
 
-	// Get access token
-	accessToken, err := sbc.authClient.GetAccessToken()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get access token: %w", err)
-	}
-
 	// Build request URL - account info endpoint
 	requestURL := fmt.Sprintf("%s/port/v1/accounts/me", sbc.baseURL)
 
@@ -163,12 +147,8 @@ func (sbc *SaxoBrokerClient) GetAccountInfo(ctx context.Context) (*AccountInfo, 
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
-	// Set headers
-	httpReq.Header.Set("Authorization", "Bearer "+accessToken)
-	httpReq.Header.Set("Accept", "application/json")
-
-	// Execute request
-	resp, err := sbc.httpClient.Do(httpReq)
+	// Execute request with OAuth2 auto-refresh
+	resp, err := sbc.doRequest(ctx, httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}
@@ -230,12 +210,6 @@ func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument I
 		return nil, fmt.Errorf("not authenticated with broker")
 	}
 
-	// Get access token
-	accessToken, err := sbc.authClient.GetAccessToken()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get access token: %w", err)
-	}
-
 	// Build request URL for historical chart data using enriched UIC and AssetType
 	// Following legacy broker/broker_http.go GetSaxoHistoricBars pattern
 	// Using daily horizon (1440 minutes = 1 day), Mode=UpTo, and FieldGroups=Data
@@ -250,12 +224,8 @@ func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument I
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
-	// Set headers
-	httpReq.Header.Set("Authorization", "Bearer "+accessToken)
-	httpReq.Header.Set("Accept", "application/json")
-
-	// Execute request
-	resp, err := sbc.httpClient.Do(httpReq)
+	// Execute request with OAuth2 auto-refresh
+	resp, err := sbc.doRequest(ctx, httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}
@@ -323,7 +293,7 @@ func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument I
 
 		historicalData[i] = HistoricalDataPoint{
 			Ticker: instrument.Ticker,
-			Date:   date,
+			Time:   date,
 			Open:   open,
 			High:   high,
 			Low:    low,
