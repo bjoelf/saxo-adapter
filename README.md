@@ -50,39 +50,51 @@ go get github.com/bjoelf/saxo-adapter@latest
 
 ## Configuration to get examples running
 
-1, You need a developer account with Saxo Bank
-2, You need to create a client (for demo enviroment)
+1. You need a developer account with Saxo Bank
+2. You need to create a client (for demo environment)
+3. You need to set a Redirect URL to (http://localhost:8080/oauth/callback)
 
-For details in client creation:
+For details on client creation:
 <https://github.com/SaxoBank/openapi-samples-csharp/tree/master/authentication/Authentication_CodeFlow>
 
-
-### Loading Environment Variables
+### Export Environment Variables
 
 ```bash
-cd /home/bjorn/dev/saxo-adapter
-
-# Create .env file with your credentials
-cat > .env << 'EOF'
-
-SAXO_ENVIRONMENT=sim
-SAXO_CLIENT_ID="your_client_id_here"
-SAXO_CLIENT_SECRET="your_client_secret_here"
-
-EOF
-
-# Load variables into your shell
-export $(grep -v '^#' .env | xargs)
+# Export your Saxo credentials to your shell
+export SAXO_ENVIRONMENT=sim
+export SAXO_CLIENT_ID="your_client_id_here"
+export SAXO_CLIENT_SECRET="your_client_secret_here"
 
 # Verify they're loaded
 echo "Environment: $SAXO_ENVIRONMENT"
 echo "Client ID: $SAXO_CLIENT_ID"
+echo "Client Secret: $SAXO_CLIENT_SECRET"
 
-# Now run examples
+# Now run oauth examples
+cd /home/bjorn/dev/saxo-adapter
 go run ./examples/basic_auth/main.go
-```
+#
 
-**Note:** The `.env` file is for your convenience. Go programs don't automatically load it - you must export the variables to your shell before running examples or tests.
+# This will open a browser and show Saxo's regular oauth login page.
+# This variable deermine saxo enviroment: export SAXO_ENVIRONMENT=sim
+
+# For live trading enviroment change to
+# export SAXO_ENVIRONMENT=live
+# Warning! live enviroment is... live. 
+# Broker will execute order with your accounts money.
+
+# There are four examples in /examples/ folder
+# To run any other change path to main.go. 
+# For example:
+# go run ./examples/place_order/main.go
+
+```
+## Note: 
+For an example with persistent SAXO_CLIENT_ID and SAXO_CLIENT_SECRET variables 
+using an .env file please look at: 
+
+(https://github.com/bjoelf/fx-collector)
+
 
 ## Features
 
