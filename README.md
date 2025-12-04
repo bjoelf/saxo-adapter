@@ -48,6 +48,101 @@
 go get github.com/bjoelf/saxo-adapter@latest
 ```
 
+## Development Environment Setup
+
+### For Go Beginners
+
+If you're new to Go or setting up a fresh development environment:
+
+#### 1. Install Go
+
+**Linux/macOS:**
+```bash
+# Check if Go is installed
+go version
+
+# If not installed, download from https://go.dev/dl/
+# Or use a package manager:
+# Ubuntu/Debian:
+sudo apt update && sudo apt install golang-go
+
+# macOS (Homebrew):
+brew install go
+
+# Verify installation
+go version  # Should show go1.21 or higher
+```
+
+**Recommended:** Go 1.25 or higher
+
+#### 2. Clone the Repository
+
+```bash
+git clone https://github.com/bjoelf/saxo-adapter.git
+cd saxo-adapter
+```
+
+#### 3. Install Dependencies
+
+Go modules automatically download dependencies when you build or run code. The `go.mod` file defines required packages, and `go.sum` contains checksums for verification.
+
+```bash
+# Download all dependencies (optional - happens automatically)
+go mod download
+
+# Verify everything is ready
+go mod verify
+```
+
+**Note on `go.sum`:** This file is **committed to the repository** and should be kept in version control. It ensures reproducible builds by locking dependency versions. When you clone the repo, Go will verify downloaded packages match these checksums.
+
+#### 4. Build the Project
+
+```bash
+# Build all packages to verify setup
+go build ./...
+
+# Run tests to confirm everything works
+go test ./adapter/...
+```
+
+#### 5. IDE Setup (Optional but Recommended)
+
+**VS Code:**
+- Install the official Go extension: `golang.go`
+- It will auto-configure gopls (language server), debugging, and formatting
+
+**GoLand/IntelliJ IDEA:**
+- Go support is built-in (GoLand) or via plugin (IntelliJ IDEA Ultimate)
+- Open the `saxo-adapter` folder - it will auto-detect `go.mod`
+
+**Vim/Neovim:**
+- Use `vim-go` plugin or native LSP with `gopls`
+
+### Quick Start for Experienced Developers
+
+```bash
+# Clone and setup
+git clone https://github.com/bjoelf/saxo-adapter.git
+cd saxo-adapter
+
+# Dependencies are managed via go.mod/go.sum (already in repo)
+# Just verify:
+go mod verify
+
+# Build
+go build ./...
+
+# Test
+go test ./adapter/...
+```
+
+**Key Points:**
+- `go.mod` + `go.sum` are committed (ensures reproducible builds)
+- No need for `go mod init` - already initialized
+- `go mod download` is automatic when building/running
+- Go 1.21+ recommended
+
 ## Configuration to get examples running
 
 1. You need a developer account with Saxo Bank
