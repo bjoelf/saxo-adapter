@@ -41,9 +41,9 @@ type BrokerClient interface {
 
 	// Order and position queries
 	GetOpenOrders(ctx context.Context) ([]LiveOrder, error)
-	GetOpenPositions(ctx context.Context) (*SaxoOpenPositionsResponse, error)
-	GetNetPositions(ctx context.Context) (*SaxoNetPositionsResponse, error)
-	GetClosedPositions(ctx context.Context) (*SaxoClosedPositionsResponse, error)
+	GetOpenPositions(ctx context.Context) (*OpenPositionsResponse, error)
+	GetNetPositions(ctx context.Context) (*NetPositionsResponse, error)
+	GetClosedPositions(ctx context.Context) (*ClosedPositionsResponse, error)
 
 	// Account and balance queries - generic, broker-agnostic
 	GetBalance(ctx context.Context) (*Balance, error)
@@ -157,24 +157,33 @@ type OrderStatus struct {
 
 // LiveOrder represents order fetched from broker API
 type LiveOrder struct {
-	OrderID          string
-	Uic              int
-	Ticker           string
-	Symbol           string // Display symbol from broker
-	Description      string // Full description from broker
-	AssetType        string
-	OrderType        string
-	Amount           float64
-	Price            float64
-	StopLimitPrice   float64
-	OrderTime        time.Time
-	Status           string
-	RelatedOrders    []RelatedOrder
-	BuySell          string
-	OrderDuration    string
-	OrderRelation    string
-	AccountKey       string
-	ClientKey        string
+	OrderID        string
+	Uic            int
+	Ticker         string
+	AssetType      string
+	OrderType      string
+	Amount         float64
+	Price          float64
+	StopLimitPrice float64
+	OrderTime      time.Time
+	Status         string
+	RelatedOrders  []RelatedOrder
+	BuySell        string
+	OrderDuration  string
+	OrderRelation  string
+	AccountKey     string
+	ClientKey      string
+
+	// Display information
+	DisplayAndFormat struct {
+		Currency    string
+		Decimals    int
+		Description string
+		Format      string
+		Symbol      string
+	}
+
+	// Market conditions
 	DistanceToMarket float64
 	IsMarketOpen     bool
 	MarketPrice      float64

@@ -245,8 +245,11 @@ type SaxoOpenOrder struct {
 
 	// Display information
 	DisplayAndFormat struct {
-		Symbol      string `json:"Symbol"`
+		Currency    string `json:"Currency"`
+		Decimals    int    `json:"Decimals"`
 		Description string `json:"Description"`
+		Format      string `json:"Format"`
+		Symbol      string `json:"Symbol"`
 	} `json:"DisplayAndFormat"`
 
 	// Market conditions
@@ -422,12 +425,11 @@ type SaxoClosedPosition struct {
 	} `json:"ClosedPosition"`
 	ClosedPositionUniqueID string `json:"ClosedPositionUniqueId"`
 	DisplayAndFormat       struct {
-		Currency          string `json:"Currency"`
-		Decimals          int    `json:"Decimals"`
-		Description       string `json:"Description"`
-		Format            string `json:"Format"`
-		NumeratorDecimals int    `json:"NumeratorDecimals"`
-		Symbol            string `json:"Symbol"`
+		Currency    string `json:"Currency"`
+		Decimals    int    `json:"Decimals"`
+		Description string `json:"Description"`
+		Format      string `json:"Format"`
+		Symbol      string `json:"Symbol"`
 	} `json:"DisplayAndFormat"`
 	NetPositionID string `json:"NetPositionId"`
 }

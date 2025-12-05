@@ -475,7 +475,8 @@ func (sbc *SaxoBrokerClient) GetOpenPositions(ctx context.Context) (*SaxoOpenPos
 // NetPositions aggregate multiple individual positions of the same instrument
 // Example: 3 long EURUSD positions = 1 net position showing total exposure
 func (sbc *SaxoBrokerClient) GetNetPositions(ctx context.Context) (*SaxoNetPositionsResponse, error) {
-	url := fmt.Sprintf("%s/port/v1/netpositions/me", sbc.baseURL)
+	// Request all field groups to get complete net position data including Symbol and Description
+	url := fmt.Sprintf("%s/port/v1/netpositions/me?FieldGroups=NetPositionBase,NetPositionView,DisplayAndFormat", sbc.baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -507,7 +508,7 @@ func (sbc *SaxoBrokerClient) GetNetPositions(ctx context.Context) (*SaxoNetPosit
 // Endpoint: GET /port/v1/closedpositions/me
 func (sbc *SaxoBrokerClient) GetClosedPositions(ctx context.Context) (*SaxoClosedPositionsResponse, error) {
 	// Request all field groups to get complete closed position data including Symbol and Description
-	url := fmt.Sprintf("%s/port/v1/closedpositions/me?FieldGroups=DisplayAndFormat", sbc.baseURL)
+	url := fmt.Sprintf("%s/port/v1/closedpositions/me?FieldGroups=ClosedPosition,DisplayAndFormat", sbc.baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -764,24 +765,37 @@ func (sbc *SaxoBrokerClient) convertFromSaxoOpenOrder(saxoOrder SaxoOpenOrder) L
 		}
 	}
 
-	return LiveOrder{
-		OrderID:        saxoOrder.OrderID,
-		Uic:            saxoOrder.Uic,
-		Ticker:         saxoOrder.DisplayAndFormat.Symbol,
-		Symbol:         saxoOrder.DisplayAndFormat.Symbol,
-		Description:    saxoOrder.DisplayAndFormat.Description,
-		AssetType:      saxoOrder.AssetType,
-		OrderType:      saxoOrder.OrderType,
-		Amount:         saxoOrder.Amount,
-		Price:          saxoOrder.OrderPrice,
-		StopLimitPrice: 0, // TODO: Extract from order details if available
-		OrderTime:      orderTime,
-		Status:         saxoOrder.Status,
-		RelatedOrders:  relatedOrders,
-
-		// Additional Saxo fields
-		BuySell: saxoOrder.BuySell,
+	liveOrder := LiveOrder{
+		OrderID:          saxoOrder.OrderID,
+		Uic:              saxoOrder.Uic,
+		Ticker:           saxoOrder.DisplayAndFormat.Symbol,
+		AssetType:        saxoOrder.AssetType,
+		OrderType:        saxoOrder.OrderType,
+		Amount:           saxoOrder.Amount,
+		Price:            saxoOrder.OrderPrice,
+		StopLimitPrice:   0, // TODO: Extract from order details if available
+		OrderTime:        orderTime,
+		Status:           saxoOrder.Status,
+		RelatedOrders:    relatedOrders,
+		BuySell:          saxoOrder.BuySell,
+		OrderDuration:    saxoOrder.OrderDuration.DurationType,
+		OrderRelation:    saxoOrder.OrderRelation,
+		AccountKey:       saxoOrder.AccountKey,
+		ClientKey:        saxoOrder.ClientKey,
+		DistanceToMarket: saxoOrder.DistanceToMarket,
+		IsMarketOpen:     saxoOrder.IsMarketOpen,
+		MarketPrice:      saxoOrder.MarketPrice,
+		OrderAmountType:  "Quantity", // Default for Saxo orders
 	}
+
+	// Populate DisplayAndFormat struct
+	liveOrder.DisplayAndFormat.Currency = saxoOrder.DisplayAndFormat.Currency
+	liveOrder.DisplayAndFormat.Decimals = saxoOrder.DisplayAndFormat.Decimals
+	liveOrder.DisplayAndFormat.Description = saxoOrder.DisplayAndFormat.Description
+	liveOrder.DisplayAndFormat.Format = saxoOrder.DisplayAndFormat.Format
+	liveOrder.DisplayAndFormat.Symbol = saxoOrder.DisplayAndFormat.Symbol
+
+	return liveOrder
 }
 
 // GetTradingSchedule retrieves trading schedule from Saxo API with generic return type
