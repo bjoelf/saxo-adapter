@@ -391,7 +391,8 @@ func (sbc *SaxoBrokerClient) GetOrderStatus(ctx context.Context, orderID string)
 // Used by recovery system to match live orders to signals
 func (sbc *SaxoBrokerClient) GetOpenOrders(ctx context.Context) ([]LiveOrder, error) {
 	// Saxo API endpoint: GET /port/v1/orders/me
-	url := fmt.Sprintf("%s/port/v1/orders/me", sbc.baseURL)
+	// Request all field groups to get complete order data including Symbol and Description
+	url := fmt.Sprintf("%s/port/v1/orders/me?FieldGroups=DisplayAndFormat,ExchangeInfo", sbc.baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -430,7 +431,10 @@ func (sbc *SaxoBrokerClient) GetOpenOrders(ctx context.Context) ([]LiveOrder, er
 // GetOpenPositions retrieves all open positions from Saxo API
 // Endpoint: GET /port/v1/positions/me
 func (sbc *SaxoBrokerClient) GetOpenPositions(ctx context.Context) (*SaxoOpenPositionsResponse, error) {
-	url := fmt.Sprintf("%s/port/v1/positions/me", sbc.baseURL)
+	// Request all field groups: PositionBase, PositionView, and DisplayAndFormat
+	// Without FieldGroups parameter, only PositionBase and PositionView are returned by default
+	// We need to explicitly request all three to get Symbol and Description
+	url := fmt.Sprintf("%s/port/v1/positions/me?FieldGroups=PositionBase,PositionView,DisplayAndFormat", sbc.baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -449,9 +453,16 @@ func (sbc *SaxoBrokerClient) GetOpenPositions(ctx context.Context) (*SaxoOpenPos
 		return nil, sbc.handleErrorResponse(resp)
 	}
 
+	// Read response body for debugging
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	sbc.logger.Printf("DEBUG GetOpenPositions: Response body: %s", string(bodyBytes))
+
 	// Parse Saxo response
 	var saxoResponse SaxoOpenPositionsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&saxoResponse); err != nil {
+	if err := json.Unmarshal(bodyBytes, &saxoResponse); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -495,7 +506,8 @@ func (sbc *SaxoBrokerClient) GetNetPositions(ctx context.Context) (*SaxoNetPosit
 // GetClosedPositions retrieves closed positions from Saxo API
 // Endpoint: GET /port/v1/closedpositions/me
 func (sbc *SaxoBrokerClient) GetClosedPositions(ctx context.Context) (*SaxoClosedPositionsResponse, error) {
-	url := fmt.Sprintf("%s/port/v1/closedpositions/me", sbc.baseURL)
+	// Request all field groups to get complete closed position data including Symbol and Description
+	url := fmt.Sprintf("%s/port/v1/closedpositions/me?FieldGroups=DisplayAndFormat", sbc.baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -730,6 +742,10 @@ func (sbc *SaxoBrokerClient) convertFromSaxoStatus(saxoStatus SaxoOrderStatus) *
 
 // convertFromSaxoOpenOrder converts Saxo open order to domain LiveOrder
 func (sbc *SaxoBrokerClient) convertFromSaxoOpenOrder(saxoOrder SaxoOpenOrder) LiveOrder {
+	// Debug: Log what we're receiving from Saxo API
+	sbc.logger.Printf("DEBUG convertFromSaxoOpenOrder: OrderID=%s, Symbol=%q, Description=%q",
+		saxoOrder.OrderID, saxoOrder.DisplayAndFormat.Symbol, saxoOrder.DisplayAndFormat.Description)
+
 	// Parse order time
 	orderTime, err := time.Parse(time.RFC3339, saxoOrder.OrderTime)
 	if err != nil {
@@ -752,6 +768,8 @@ func (sbc *SaxoBrokerClient) convertFromSaxoOpenOrder(saxoOrder SaxoOpenOrder) L
 		OrderID:        saxoOrder.OrderID,
 		Uic:            saxoOrder.Uic,
 		Ticker:         saxoOrder.DisplayAndFormat.Symbol,
+		Symbol:         saxoOrder.DisplayAndFormat.Symbol,
+		Description:    saxoOrder.DisplayAndFormat.Description,
 		AssetType:      saxoOrder.AssetType,
 		OrderType:      saxoOrder.OrderType,
 		Amount:         saxoOrder.Amount,

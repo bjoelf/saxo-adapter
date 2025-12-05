@@ -160,6 +160,8 @@ type LiveOrder struct {
 	OrderID          string
 	Uic              int
 	Ticker           string
+	Symbol           string // Display symbol from broker
+	Description      string // Full description from broker
 	AssetType        string
 	OrderType        string
 	Amount           float64
