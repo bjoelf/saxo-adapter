@@ -527,9 +527,27 @@ func (sbc *SaxoBrokerClient) GetClosedPositions(ctx context.Context) (*SaxoClose
 		return nil, sbc.handleErrorResponse(resp)
 	}
 
-	// Parse Saxo response
+	// Read response body for debugging
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Handle Saxo API quirk: returns [] when no closed positions instead of {"Data": [], "__count": 0}
+	// Check if response is an empty array
+	trimmed := bytes.TrimSpace(bodyBytes)
+	if len(trimmed) == 2 && trimmed[0] == '[' && trimmed[1] == ']' {
+		sbc.logger.Printf("GetClosedPositions: No closed positions (empty array response)")
+		return &SaxoClosedPositionsResponse{
+			Data:  []SaxoClosedPosition{},
+			Count: 0,
+		}, nil
+	}
+
+	// Parse Saxo response (normal case with data)
 	var saxoResponse SaxoClosedPositionsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&saxoResponse); err != nil {
+	if err := json.Unmarshal(bodyBytes, &saxoResponse); err != nil {
+		sbc.logger.Printf("GetClosedPositions: Failed to decode response. Body: %s", string(bodyBytes))
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
