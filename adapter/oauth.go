@@ -139,7 +139,7 @@ func NewSaxoAuthClient(
 		websocketURL:    websocketURL,
 		tokenStorage:    storage,
 		environment:     environment,
-		tokenUpdated:    make(chan TokenInfo, 1),
+		tokenUpdated:    nil, // CRITICAL: Must be nil so StartAuthenticationKeeper creates it
 		logger:          logger,
 	}
 }
