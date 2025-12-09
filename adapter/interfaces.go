@@ -68,7 +68,7 @@ type BrokerClient interface {
 // WebSocketClient defines real-time data streaming interface
 type WebSocketClient interface {
 	Connect(ctx context.Context) error
-	SubscribeToPrices(ctx context.Context, instruments []string) error
+	SubscribeToPrices(ctx context.Context, instruments []string, assetType string) error // assetType: "FxSpot", "ContractFutures", etc.
 	SubscribeToOrders(ctx context.Context) error
 	SubscribeToPortfolio(ctx context.Context) error
 	SubscribeToSessionEvents(ctx context.Context) error

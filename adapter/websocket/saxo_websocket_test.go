@@ -134,7 +134,7 @@ func TestSaxoWebSocketClient_PriceSubscription(t *testing.T) {
 
 	// Test price subscription
 	tickers := []string{"EURUSD", "GBPUSD"}
-	if err := client.SubscribeToPrices(ctx, tickers); err != nil {
+	if err := client.SubscribeToPrices(ctx, tickers, "FxSpot"); err != nil {
 		t.Fatalf("Failed to subscribe to prices: %v", err)
 	}
 
@@ -197,7 +197,7 @@ func TestSaxoWebSocketClient_ReconnectionLogic(t *testing.T) {
 
 	// Subscribe to prices
 	tickers := []string{"EURUSD"}
-	if err := client.SubscribeToPrices(ctx, tickers); err != nil {
+	if err := client.SubscribeToPrices(ctx, tickers, "FxSpot"); err != nil {
 		t.Fatalf("Failed to subscribe: %v", err)
 	}
 

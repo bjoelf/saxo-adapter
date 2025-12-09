@@ -177,14 +177,15 @@ func (ws *SaxoWebSocketClient) Connect(ctx context.Context) error {
 }
 
 // SubscribeToPrices delegates to subscription manager following clean architecture
-func (ws *SaxoWebSocketClient) SubscribeToPrices(ctx context.Context, instruments []string) error {
-	ws.logger.Printf("SaxoWebSocket: Subscribing to price feeds for %d instruments: %v", len(instruments), instruments)
-	err := ws.subscriptionManager.SubscribeToInstrumentPrices(instruments)
+// assetType: "FxSpot", "ContractFutures", "CfdOnFutures", etc.
+func (ws *SaxoWebSocketClient) SubscribeToPrices(ctx context.Context, instruments []string, assetType string) error {
+	ws.logger.Printf("SaxoWebSocket: Subscribing to price feeds for %d instruments (AssetType: %s): %v", len(instruments), assetType, instruments)
+	err := ws.subscriptionManager.SubscribeToInstrumentPrices(instruments, assetType)
 	if err != nil {
 		ws.logger.Printf("SaxoWebSocket: Price subscription failed: %v", err)
 		return err
 	}
-	ws.logger.Printf("SaxoWebSocket: ✅ Price subscription successful for %d instruments", len(instruments))
+	ws.logger.Printf("SaxoWebSocket: ✅ Price subscription successful for %d instruments (AssetType: %s)", len(instruments), assetType)
 	return nil
 }
 

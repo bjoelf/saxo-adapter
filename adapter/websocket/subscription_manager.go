@@ -45,9 +45,10 @@ func NewSubscriptionManager(client *SaxoWebSocketClient, baseURL string, getAuth
 // SubscribeToInstrumentPrices establishes price feed subscription following Saxo streaming API
 // Per documentation: Subscriptions are sent via HTTP POST, NOT via WebSocket!
 // Endpoint: POST /trade/v1/infoprices/subscriptions
-func (sm *SubscriptionManager) SubscribeToInstrumentPrices(instruments []string) error {
+// assetType: "FxSpot", "ContractFutures", "CfdOnFutures", etc.
+func (sm *SubscriptionManager) SubscribeToInstrumentPrices(instruments []string, assetType string) error {
 	sm.client.logger.Println("===============================================")
-	sm.client.logger.Printf("SubscribeToInstrumentPrices: Starting price subscription for %d instruments", len(instruments))
+	sm.client.logger.Printf("SubscribeToInstrumentPrices: Starting price subscription for %d instruments (AssetType: %s)", len(instruments), assetType)
 	sm.client.logger.Printf("  Instruments: %v", instruments)
 	sm.client.logger.Println("===============================================")
 
@@ -91,7 +92,7 @@ func (sm *SubscriptionManager) SubscribeToInstrumentPrices(instruments []string)
 		"RefreshRate": 1000,
 		"Arguments": map[string]interface{}{
 			"Uics":      strings.Join(uicStrings, ","), // Must be string: "5027,2,4,8,..."
-			"AssetType": "FxSpot",
+			"AssetType": assetType,                     // Use parameter from caller (FxSpot, ContractFutures, etc.)
 		},
 	}
 

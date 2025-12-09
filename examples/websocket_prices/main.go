@@ -71,7 +71,8 @@ func main() {
 	logger.Println("  - GBPUSD (ID 1)")
 
 	// Generic interface method - same for all brokers!
-	if err := wsClient.SubscribeToPrices(ctx, instruments); err != nil {
+	// Using "FxSpot" since these are FX pairs (EURUSD, USDJPY, GBPUSD)
+	if err := wsClient.SubscribeToPrices(ctx, instruments, "FxSpot"); err != nil {
 		logger.Fatalf("Price subscription failed: %v", err)
 	}
 	logger.Println("✅ Subscribed to price feeds")
