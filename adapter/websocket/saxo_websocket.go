@@ -85,6 +85,11 @@ type SaxoWebSocketClient struct {
 	uicToTicker map[int]string // Maps Saxo UIC -> Ticker for price message routing
 	tickerToUic map[string]int // Maps Ticker -> Saxo UIC for subscription requests
 	mappingMu   sync.RWMutex   // Protects UIC mapping access
+
+	// ClientKey for order and portfolio subscriptions (fetched from /port/v1/users/me)
+	// CRITICAL: Saxo API requires ClientKey for order/portfolio subscriptions
+	clientKey   string       // Cached ClientKey from GetClientInfo
+	clientKeyMu sync.RWMutex // Protects ClientKey access
 }
 
 // NewSaxoWebSocketClient creates WebSocket client following legacy broker_websocket.go patterns
@@ -192,9 +197,19 @@ func (ws *SaxoWebSocketClient) SubscribeToPrices(ctx context.Context, instrument
 // SubscribeToOrders delegates to subscription manager
 func (ws *SaxoWebSocketClient) SubscribeToOrders(ctx context.Context) error {
 	ws.logger.Println("SaxoWebSocket: Subscribing to order status updates...")
-	// TODO: Get clientKey from /port/v1/users/me endpoint
-	// For now, subscriptions without clientKey will subscribe to all orders
-	err := ws.subscriptionManager.SubscribeToOrderUpdates("")
+
+	// Fetch ClientKey from broker if not already cached
+	if err := ws.ensureClientKey(ctx); err != nil {
+		ws.logger.Printf("SaxoWebSocket: Failed to get ClientKey: %v", err)
+		return fmt.Errorf("failed to get ClientKey for order subscription: %w", err)
+	}
+
+	ws.clientKeyMu.RLock()
+	clientKey := ws.clientKey
+	ws.clientKeyMu.RUnlock()
+
+	ws.logger.Printf("SaxoWebSocket: Using ClientKey: %s", clientKey)
+	err := ws.subscriptionManager.SubscribeToOrderUpdates(clientKey)
 	if err != nil {
 		ws.logger.Printf("SaxoWebSocket: Order subscription failed: %v", err)
 		return err
@@ -206,8 +221,19 @@ func (ws *SaxoWebSocketClient) SubscribeToOrders(ctx context.Context) error {
 // SubscribeToPortfolio delegates to subscription manager
 func (ws *SaxoWebSocketClient) SubscribeToPortfolio(ctx context.Context) error {
 	ws.logger.Println("SaxoWebSocket: Subscribing to portfolio balance updates...")
-	// TODO: Get clientKey from /port/v1/users/me endpoint
-	err := ws.subscriptionManager.SubscribeToPortfolioUpdates("")
+
+	// Fetch ClientKey from broker if not already cached
+	if err := ws.ensureClientKey(ctx); err != nil {
+		ws.logger.Printf("SaxoWebSocket: Failed to get ClientKey: %v", err)
+		return fmt.Errorf("failed to get ClientKey for portfolio subscription: %w", err)
+	}
+
+	ws.clientKeyMu.RLock()
+	clientKey := ws.clientKey
+	ws.clientKeyMu.RUnlock()
+
+	ws.logger.Printf("SaxoWebSocket: Using ClientKey: %s", clientKey)
+	err := ws.subscriptionManager.SubscribeToPortfolioUpdates(clientKey)
 	if err != nil {
 		ws.logger.Printf("SaxoWebSocket: Portfolio subscription failed: %v", err)
 		return err
@@ -254,6 +280,65 @@ func (ws *SaxoWebSocketClient) RegisterInstruments(instruments []*saxo.Instrumen
 		ws.logger.Printf("WebSocket: Sample mapping - UIC %d -> %s",
 			instruments[0].Identifier, instruments[0].Ticker)
 	}
+}
+
+// ensureClientKey fetches and caches ClientKey from broker if not already available
+// CRITICAL: Saxo API requires ClientKey for order and portfolio subscriptions
+// ClientKey identifies the client account and is required per API documentation:
+// - POST /port/v1/orders/subscriptions requires Arguments.ClientKey
+// - POST /port/v1/balances/subscriptions requires Arguments.ClientKey
+// This method is idempotent - only fetches once and caches the result
+func (ws *SaxoWebSocketClient) ensureClientKey(ctx context.Context) error {
+	// Check if already cached
+	ws.clientKeyMu.RLock()
+	if ws.clientKey != "" {
+		ws.clientKeyMu.RUnlock()
+		ws.logger.Printf("ensureClientKey: Using cached ClientKey: %s", ws.clientKey)
+		return nil
+	}
+	ws.clientKeyMu.RUnlock()
+
+	// Need to fetch - acquire write lock
+	ws.clientKeyMu.Lock()
+	defer ws.clientKeyMu.Unlock()
+
+	// Double-check after acquiring write lock (another goroutine may have fetched)
+	if ws.clientKey != "" {
+		ws.logger.Printf("ensureClientKey: ClientKey was fetched by another goroutine: %s", ws.clientKey)
+		return nil
+	}
+
+	// Fetch from broker via authClient's broker client
+	// The authClient should provide access to the broker client
+	// We need to create a temporary broker client or use a different approach
+
+	// CRITICAL FIX: We need to access the broker client through the auth client
+	// The saxo-adapter pattern is: authClient -> brokerClient -> GetClientInfo()
+	// Since SaxoWebSocketClient only has authClient, we need to create a broker client
+
+	ws.logger.Println("ensureClientKey: Fetching ClientKey from /port/v1/users/me...")
+
+	// Create a temporary broker client to fetch client info
+	// Following saxo-adapter pattern: CreateBrokerServices(authClient, logger)
+	brokerClient, err := saxo.CreateBrokerServices(ws.authClient, ws.logger)
+	if err != nil {
+		return fmt.Errorf("failed to create broker client for ClientKey fetch: %w", err)
+	}
+
+	clientInfo, err := brokerClient.GetClientInfo(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get client info: %w", err)
+	}
+
+	if clientInfo.ClientKey == "" {
+		return fmt.Errorf("ClientKey is empty in response from /port/v1/users/me")
+	}
+
+	// Cache the ClientKey
+	ws.clientKey = clientInfo.ClientKey
+	ws.logger.Printf("ensureClientKey: ✅ Successfully fetched and cached ClientKey: %s", ws.clientKey)
+
+	return nil
 }
 
 func (ws *SaxoWebSocketClient) GetOrderUpdateChannel() <-chan saxo.OrderUpdate {
