@@ -84,7 +84,8 @@ func (sm *SubscriptionManager) SubscribeToInstrumentPrices(instruments []string,
 	}
 
 	// Generate human-readable reference ID following legacy pattern
-	referenceId := generateHumanReadableID("prices")
+	feedReferenceId := assetType + "prices"
+	referenceId := generateHumanReadableID(feedReferenceId)
 
 	subscriptionReq := map[string]interface{}{
 		"ContextId":   contextId,
@@ -119,6 +120,7 @@ func (sm *SubscriptionManager) SubscribeToInstrumentPrices(instruments []string,
 
 	sm.client.logger.Println("===============================================")
 	sm.client.logger.Printf("✅ SubscribeToInstrumentPrices: Successfully subscribed to prices")
+	sm.client.logger.Printf("✅ ReferenceId: %s", referenceId)
 	sm.client.logger.Printf("   Instruments: %v", instruments)
 	sm.client.logger.Printf("   UICs: %v", uics)
 	sm.client.logger.Printf("   Context ID: %s", contextId)
@@ -477,6 +479,7 @@ func (sm *SubscriptionManager) HandleSubscriptionReset(targetReferenceIds []stri
 	return nil
 }
 
+/*
 // resetAllSubscriptions resets all active subscriptions
 func (sm *SubscriptionManager) resetAllSubscriptions() error {
 	for oldRef, subscription := range sm.subscriptions {
@@ -492,7 +495,7 @@ func (sm *SubscriptionManager) resetAllSubscriptions() error {
 	}
 	return nil
 }
-
+*/
 // resetSpecificSubscriptions resets only specified subscriptions
 func (sm *SubscriptionManager) resetSpecificSubscriptions(targetReferenceIds []string) error {
 	for _, targetId := range targetReferenceIds {
