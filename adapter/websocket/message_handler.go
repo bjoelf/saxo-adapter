@@ -91,7 +91,7 @@ func (mh *MessageHandler) handleDataMessage(parsed *ParsedMessage) error {
 		return mh.handlePortfolioUpdate(parsed.Payload)
 	} else if strings.HasPrefix(parsed.ReferenceID, "session-") {
 		mh.client.logger.Printf("Routing to session update handler")
-		// Session updates handled separately
+		mh.client.handleSessionEvent(parsed.Payload)
 		return nil
 	} else {
 		mh.client.logger.Printf("Unknown data message reference: %s", parsed.ReferenceID)
@@ -142,35 +142,28 @@ func (mh *MessageHandler) handlePriceUpdate(payload []byte) error {
 // handleOrderUpdate processes order status messages following legacy order coordination patterns
 func (mh *MessageHandler) handleOrderUpdate(payload []byte) error {
 	mh.client.logger.Printf("Order update received (payload size: %d bytes)", len(payload))
-	// TODO: Implement order update processing
-	return nil
-}
 
-// handlePortfolioUpdate processes portfolio balance messages following legacy portfolio coordination patterns
-func (mh *MessageHandler) handlePortfolioUpdate(payload []byte) error {
-	mh.client.logger.Printf("Portfolio update received (payload size: %d bytes)", len(payload))
-	// TODO: Implement portfolio update processing
-	return nil
-}
-
-// convertPriceData converts StreamingPriceUpdate to saxo.PriceUpdate
-func (mh *MessageHandler) convertPriceData(priceData StreamingPriceUpdate) (*saxo.PriceUpdate, error) {
-	// Look up ticker from UIC
-	mh.client.mappingMu.RLock()
-	ticker, exists := mh.client.uicToTicker[priceData.Uic]
-	mh.client.mappingMu.RUnlock()
-
-	if !exists {
-		return nil, fmt.Errorf("no ticker mapping for UIC %d", priceData.Uic)
+	// Parse JSON payload
+	var orderData map[string]interface{}
+	if err := json.Unmarshal(payload, &orderData); err != nil {
+		return fmt.Errorf("failed to unmarshal order data: %w", err)
 	}
 
-	return &saxo.PriceUpdate{
-		Ticker:    ticker,
-		Bid:       priceData.Quote.Bid,
-		Ask:       priceData.Quote.Ask,
-		Mid:       priceData.Quote.Mid,
-		Timestamp: time.Now(),
-	}, nil
+	// Convert to OrderUpdate
+	orderUpdate, err := mh.parseOrderData(orderData)
+	if err != nil {
+		return fmt.Errorf("failed to parse order data: %w", err)
+	}
+
+	// Send to channel (non-blocking)
+	select {
+	case mh.client.orderUpdateChan <- *orderUpdate:
+		mh.client.logger.Printf("Order update sent: OrderId=%s Status=%s", orderUpdate.OrderId, orderUpdate.Status)
+	default:
+		mh.client.logger.Printf("Order update channel full, dropping update for OrderId=%s", orderUpdate.OrderId)
+	}
+
+	return nil
 }
 
 // parseOrderData extracts order information from Saxo streaming format
@@ -205,6 +198,33 @@ func (mh *MessageHandler) parseOrderData(orderData map[string]interface{}) (*sax
 	}, nil
 }
 
+// handlePortfolioUpdate processes portfolio balance messages following legacy portfolio coordination patterns
+func (mh *MessageHandler) handlePortfolioUpdate(payload []byte) error {
+	mh.client.logger.Printf("Portfolio update received (payload size: %d bytes)", len(payload))
+
+	// Parse JSON payload
+	var portfolioData map[string]interface{}
+	if err := json.Unmarshal(payload, &portfolioData); err != nil {
+		return fmt.Errorf("failed to unmarshal portfolio data: %w", err)
+	}
+
+	// Convert to PortfolioUpdate
+	portfolioUpdate, err := mh.parsePortfolioData(portfolioData)
+	if err != nil {
+		return fmt.Errorf("failed to parse portfolio data: %w", err)
+	}
+
+	// Send to channel (non-blocking)
+	select {
+	case mh.client.portfolioUpdateChan <- *portfolioUpdate:
+		mh.client.logger.Printf("Portfolio update sent: Balance=%.2f MarginUsed=%.2f", portfolioUpdate.Balance, portfolioUpdate.MarginUsed)
+	default:
+		mh.client.logger.Printf("Portfolio update channel full, dropping update")
+	}
+
+	return nil
+}
+
 // parsePortfolioData extracts balance information from Saxo streaming format
 func (mh *MessageHandler) parsePortfolioData(portfolioData map[string]interface{}) (*saxo.PortfolioUpdate, error) {
 	// Extract balance information following legacy balance patterns
@@ -228,6 +248,26 @@ func (mh *MessageHandler) parsePortfolioData(portfolioData map[string]interface{
 		MarginUsed: marginUsed,
 		MarginFree: marginFree,
 		UpdatedAt:  time.Now(),
+	}, nil
+}
+
+// convertPriceData converts StreamingPriceUpdate to saxo.PriceUpdate
+func (mh *MessageHandler) convertPriceData(priceData StreamingPriceUpdate) (*saxo.PriceUpdate, error) {
+	// Look up ticker from UIC
+	mh.client.mappingMu.RLock()
+	ticker, exists := mh.client.uicToTicker[priceData.Uic]
+	mh.client.mappingMu.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("no ticker mapping for UIC %d", priceData.Uic)
+	}
+
+	return &saxo.PriceUpdate{
+		Ticker:    ticker,
+		Bid:       priceData.Quote.Bid,
+		Ask:       priceData.Quote.Ask,
+		Mid:       priceData.Quote.Mid,
+		Timestamp: time.Now(),
 	}, nil
 }
 
@@ -257,19 +297,4 @@ func (mh *MessageHandler) convertToFloat64(value interface{}) (float64, error) {
 	default:
 		return 0, fmt.Errorf("cannot convert %T to float64", value)
 	}
-}
-
-// getTickerForUic maps Saxo UIC codes to tickers using dynamic mapping from RegisterInstruments
-// CRITICAL FIX: No more hardcoded UICs - uses mapping from fx.json
-func (mh *MessageHandler) getTickerForUic(uic int) string {
-	mh.client.mappingMu.RLock()
-	defer mh.client.mappingMu.RUnlock()
-
-	ticker, exists := mh.client.uicToTicker[uic]
-	if !exists {
-		mh.client.logger.Printf("Warning: No ticker mapping for UIC %d (RegisterInstruments not called or missing from fx.json?)", uic)
-		return ""
-	}
-
-	return ticker
 }
