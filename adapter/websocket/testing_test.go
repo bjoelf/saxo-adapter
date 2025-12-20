@@ -17,8 +17,3 @@ func TestMain(m *testing.M) {
 	// Cleanup
 	os.Exit(code)
 }
-
-// Helper function for test setup
-func setupTestEnvironment() {
-	// Common test setup following legacy patterns
-}

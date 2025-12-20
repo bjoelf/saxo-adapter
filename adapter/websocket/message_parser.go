@@ -10,7 +10,7 @@ import (
 
 // parseMessage processes incoming Saxo WebSocket binary messages
 // Following exact legacy broker_websocket.go binary protocol parsing
-// 
+//
 // Saxo WebSocket Binary Protocol:
 // - Bytes 0-8: Message Identifier (uint64, little-endian)
 // - Bytes 8-10: Reserved
@@ -28,7 +28,7 @@ func parseMessage(message []byte) (*ParsedMessage, error) {
 	messid := binary.LittleEndian.Uint64(message[0:8])
 
 	// Byte index 8-10: Reserved (skip)
-	
+
 	// Byte index 10: Reference ID Size
 	srefid := int(message[10])
 
@@ -81,14 +81,6 @@ func (pm *ParsedMessage) IsControlMessage() bool {
 	return isControlMessage(pm.ReferenceID)
 }
 
-// ParseJSONPayload unmarshals the payload as JSON
-func (pm *ParsedMessage) ParseJSONPayload(v interface{}) error {
-	if pm.PayloadFormat != 0 {
-		return fmt.Errorf("unexpected payload format: %d (expected 0 for JSON)", pm.PayloadFormat)
-	}
-	return json.Unmarshal(pm.Payload, v)
-}
-
 // String provides a debug representation
 func (pm *ParsedMessage) String() string {
 	return fmt.Sprintf("Message{ID:%d, RefID:%s, Format:%d, PayloadSize:%d}",
@@ -109,7 +101,7 @@ func handleHeartbeat(payload []byte, ws *SaxoWebSocketClient) error {
 		if len(h.Heartbeats) <= i {
 			continue
 		}
-		
+
 		hb := h.Heartbeats[i]
 		switch hb.Reason {
 		case "NoNewData":
