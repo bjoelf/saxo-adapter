@@ -607,11 +607,14 @@ func (sm *SubscriptionManager) getUicsForInstruments(instruments []string) []int
 	sm.client.mappingMu.Lock()
 	defer sm.client.mappingMu.Unlock()
 
-	var uics []int
+	// Use map to deduplicate UICs (CRITICAL FIX for Saxo API requirement)
+	// Saxo API requires: "The UICs in the list must be unique"
+	uicMap := make(map[int]bool)
+
 	for _, instrument := range instruments {
 		// First, try to parse as direct UIC (numeric string)
 		if uic, err := strconv.Atoi(instrument); err == nil {
-			uics = append(uics, uic)
+			uicMap[uic] = true
 
 			// Create reverse mapping: UIC → ticker (ticker is the UIC string itself)
 			// This allows price messages to be converted without predefined mappings
@@ -621,15 +624,21 @@ func (sm *SubscriptionManager) getUicsForInstruments(instruments []string) []int
 			sm.client.logger.Printf("  Using direct UIC: %s -> %d (created mapping)", instrument, uic)
 		} else if uic, exists := sm.client.tickerToUic[instrument]; exists {
 			// Otherwise, look up ticker in mapping
-			uics = append(uics, uic)
+			uicMap[uic] = true
 			sm.client.logger.Printf("  Mapped ticker: %s -> %d", instrument, uic)
 		} else {
 			sm.client.logger.Printf("Warning: No UIC mapping for ticker %s (RegisterInstruments not called?)", instrument)
 		}
 	}
 
+	// Convert map to slice (deduplicated UICs)
+	uics := make([]int, 0, len(uicMap))
+	for uic := range uicMap {
+		uics = append(uics, uic)
+	}
+
 	if len(uics) > 0 {
-		sm.client.logger.Printf("SubscriptionManager: Mapped %d instruments to UICs: %v", len(instruments), uics)
+		sm.client.logger.Printf("SubscriptionManager: Mapped %d instruments to %d unique UICs: %v", len(instruments), len(uics), uics)
 	}
 
 	return uics
