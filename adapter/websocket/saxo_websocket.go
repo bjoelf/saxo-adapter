@@ -30,10 +30,6 @@ type SaxoWebSocketClient struct {
 	connectionManager   *ConnectionManager
 	messageHandler      *MessageHandler
 
-	// Callback handlers - following legacy pattern for custom message processing
-	callbackHandlers   map[string]func(payload []byte)
-	callbackHandlersMu sync.RWMutex
-
 	// Channel coordination - feeds into strategy_manager channels
 	priceUpdateChan     chan saxo.PriceUpdate
 	orderUpdateChan     chan saxo.OrderUpdate
@@ -103,7 +99,6 @@ func NewSaxoWebSocketClient(authClient saxo.AuthClient, apiBaseURL string, webso
 		websocketURL:          websocketURL,
 		authClient:            authClient,
 		logger:                logger,
-		callbackHandlers:      make(map[string]func(payload []byte)),
 		lastMessageTimestamps: make(map[string]time.Time),
 		priceUpdateChan:       make(chan saxo.PriceUpdate, 100),
 		orderUpdateChan:       make(chan saxo.OrderUpdate, 100),
@@ -347,29 +342,6 @@ func (ws *SaxoWebSocketClient) GetOrderUpdateChannel() <-chan saxo.OrderUpdate {
 
 func (ws *SaxoWebSocketClient) GetPortfolioUpdateChannel() <-chan saxo.PortfolioUpdate {
 	return ws.portfolioUpdateChan
-}
-
-// RegisterCallbackHandler registers a custom callback handler for a specific reference ID
-// Following legacy pattern for flexible message routing
-func (ws *SaxoWebSocketClient) RegisterCallbackHandler(referenceID string, handler func(payload []byte)) {
-	ws.callbackHandlersMu.Lock()
-	defer ws.callbackHandlersMu.Unlock()
-	ws.callbackHandlers[referenceID] = handler
-}
-
-// UnregisterCallbackHandler removes a callback handler
-func (ws *SaxoWebSocketClient) UnregisterCallbackHandler(referenceID string) {
-	ws.callbackHandlersMu.Lock()
-	defer ws.callbackHandlersMu.Unlock()
-	delete(ws.callbackHandlers, referenceID)
-}
-
-// GetCallbackHandler retrieves a callback handler for a reference ID
-func (ws *SaxoWebSocketClient) GetCallbackHandler(referenceID string) (func(payload []byte), bool) {
-	ws.callbackHandlersMu.RLock()
-	defer ws.callbackHandlersMu.RUnlock()
-	handler, exists := ws.callbackHandlers[referenceID]
-	return handler, exists
 }
 
 // UpdateLastMessageTimestamp updates the last message timestamp for a subscription

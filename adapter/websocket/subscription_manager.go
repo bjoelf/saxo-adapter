@@ -456,15 +456,9 @@ func (sm *SubscriptionManager) HandleSubscriptions(keepCurrentReferenceIds bool,
 
 		// Update subscription tracking
 		if !keepCurrentReferenceIds && newReferenceId != subscription.ReferenceId {
-			// Reference ID changed - update tracking and transfer callback handlers
+			// Reference ID changed - update tracking
 			subscription.ReferenceId = newReferenceId
 			subscription.EndpointPath = endpoint
-
-			// Transfer callback handler to new reference ID
-			if handler, exists := sm.client.GetCallbackHandler(refId); exists {
-				sm.client.RegisterCallbackHandler(newReferenceId, handler)
-				sm.client.UnregisterCallbackHandler(refId)
-			}
 
 			// Update subscription map (if refId was the ReferenceId, update key)
 			if refId == subscription.ReferenceId {
