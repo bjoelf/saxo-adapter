@@ -156,8 +156,17 @@ func (cm *ConnectionManager) EstablishConnection(ctx context.Context) error {
 	cm.client.logger.Println("  - Starting processor goroutine")
 	go cm.client.processMessages()
 
-	// NOTE: Reconnection handler is started ONCE in Connect(), not here
-	// This prevents spawning duplicate handlers on every reconnection
+	// CRITICAL: Check if reconnection handler goroutine is already running (singleton pattern)
+	// Following legacy broker_websocket.go pattern - prevents duplicate handlers
+	cm.client.reconnectionHandlerMu.Lock()
+	if cm.client.reconnectionHandlerRunning {
+		cm.client.reconnectionHandlerMu.Unlock()
+		cm.client.logger.Println("  - Reconnection handler already running, skipping start")
+	} else {
+		cm.client.reconnectionHandlerMu.Unlock()
+		cm.client.logger.Println("  - Starting reconnection handler goroutine")
+		go cm.client.handleReconnectionRequests()
+	}
 
 	// Start subscription monitoring (timeout detection)
 	cm.client.logger.Println("  - Starting subscription monitoring goroutine")

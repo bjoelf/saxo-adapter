@@ -66,7 +66,7 @@ func (mh *MessageHandler) handleControlMessage(parsed *ParsedMessage) error {
 	case "_heartbeat":
 		return handleHeartbeat(parsed.Payload, mh.client)
 	case "_disconnect":
-		return handleDisconnect(parsed.Payload, mh.client)
+		return handleDisconnect(mh.client)
 	case "_resetsubscriptions":
 		return handleResetSubscriptions(parsed.Payload, mh.client)
 	default:
@@ -82,16 +82,16 @@ func (mh *MessageHandler) handleDataMessage(parsed *ParsedMessage) error {
 	// Route based on reference ID prefix (human-readable IDs like "prices-20251119-132309")
 	// Match by subscription type prefix to handle dynamic timestamp suffixes
 	if strings.Contains(parsed.ReferenceID, "prices") {
-		mh.client.logger.Printf("Routing to price update handler")
+		//mh.client.logger.Printf("Routing to price update handler")
 		return mh.handlePriceUpdate(parsed.Payload)
 	} else if strings.Contains(parsed.ReferenceID, "orders") {
-		mh.client.logger.Printf("Routing to order update handler")
+		//mh.client.logger.Printf("Routing to order update handler")
 		return mh.handleOrderUpdate(parsed.Payload)
 	} else if strings.Contains(parsed.ReferenceID, "balance") {
-		mh.client.logger.Printf("Routing to portfolio update handler")
+		//mh.client.logger.Printf("Routing to portfolio update handler")
 		return mh.handlePortfolioUpdate(parsed.Payload)
 	} else if strings.Contains(parsed.ReferenceID, "session") {
-		mh.client.logger.Printf("Routing to session update handler")
+		//mh.client.logger.Printf("Routing to session update handler")
 		mh.client.handleSessionEvent(parsed.Payload)
 		return nil
 	} else {

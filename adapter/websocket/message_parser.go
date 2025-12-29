@@ -122,7 +122,7 @@ func handleHeartbeat(payload []byte, ws *SaxoWebSocketClient) error {
 }
 
 // handleDisconnect processes disconnect control messages
-func handleDisconnect(payload []byte, ws *SaxoWebSocketClient) error {
+func handleDisconnect(ws *SaxoWebSocketClient) error {
 	log.Println("Received disconnect message from Saxo - user needs to log in again")
 	// Trigger graceful shutdown
 	ws.Close()
