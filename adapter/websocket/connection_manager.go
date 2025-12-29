@@ -140,6 +140,12 @@ func (cm *ConnectionManager) EstablishConnection(ctx context.Context) error {
 	// NEW: Start separated reader/processor/reconnection goroutines
 	// Following legacy broker_websocket.go breakthrough pattern - CRITICAL FIX
 
+	// CRITICAL: Create NEW context right before starting goroutines
+	// Following legacy startWebSocket pattern (broker_websocket.go:167)
+	// This ensures goroutines use a fresh, non-canceled context
+	cm.client.logger.Println("EstablishConnection: Creating fresh context for goroutines")
+	cm.client.ctx, cm.client.cancel = context.WithCancel(context.Background())
+
 	cm.client.logger.Println("EstablishConnection: Starting goroutines...")
 
 	// Start reader goroutine (ONLY reads from WebSocket)
@@ -150,8 +156,17 @@ func (cm *ConnectionManager) EstablishConnection(ctx context.Context) error {
 	cm.client.logger.Println("  - Starting processor goroutine")
 	go cm.client.processMessages()
 
-	// NOTE: Reconnection handler is started ONCE in Connect(), not here
-	// This prevents spawning duplicate handlers on every reconnection
+	// CRITICAL: Check if reconnection handler goroutine is already running (singleton pattern)
+	// Following legacy broker_websocket.go pattern - prevents duplicate handlers
+	cm.client.reconnectionHandlerMu.Lock()
+	if cm.client.reconnectionHandlerRunning {
+		cm.client.reconnectionHandlerMu.Unlock()
+		cm.client.logger.Println("  - Reconnection handler already running, skipping start")
+	} else {
+		cm.client.reconnectionHandlerMu.Unlock()
+		cm.client.logger.Println("  - Starting reconnection handler goroutine")
+		go cm.client.handleReconnectionRequests()
+	}
 
 	// Start subscription monitoring (timeout detection)
 	cm.client.logger.Println("  - Starting subscription monitoring goroutine")

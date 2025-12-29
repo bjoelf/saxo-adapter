@@ -93,7 +93,7 @@ func (sm *SubscriptionManager) SubscribeToInstrumentPrices(instruments []string,
 	}
 
 	// Generate human-readable reference ID following legacy pattern
-	feedReferenceId := assetType + "prices"
+	feedReferenceId := assetType + "-prices"
 	referenceId := generateHumanReadableID(feedReferenceId)
 
 	subscriptionReq := map[string]interface{}{
