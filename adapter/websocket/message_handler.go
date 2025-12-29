@@ -61,6 +61,7 @@ func (mh *MessageHandler) ProcessMessage(message []byte) error {
 
 // handleControlMessage processes control messages (_heartbeat, _disconnect, _resetsubscriptions)
 func (mh *MessageHandler) handleControlMessage(parsed *ParsedMessage) error {
+	//mh.client.logger.Printf("🔧 Control message: messageId=%d, referenceId=%s", parsed.MessageID, parsed.ReferenceID)
 	switch parsed.ReferenceID {
 	case "_heartbeat":
 		return handleHeartbeat(parsed.Payload, mh.client)
@@ -80,16 +81,16 @@ func (mh *MessageHandler) handleDataMessage(parsed *ParsedMessage) error {
 
 	// Route based on reference ID prefix (human-readable IDs like "prices-20251119-132309")
 	// Match by subscription type prefix to handle dynamic timestamp suffixes
-	if strings.HasPrefix(parsed.ReferenceID, "prices-") {
-		//mh.client.logger.Printf("Routing to price update handler")
+	if strings.Contains(parsed.ReferenceID, "prices") {
+		mh.client.logger.Printf("Routing to price update handler")
 		return mh.handlePriceUpdate(parsed.Payload)
-	} else if strings.HasPrefix(parsed.ReferenceID, "orders-") {
-		//mh.client.logger.Printf("Routing to order update handler")
+	} else if strings.Contains(parsed.ReferenceID, "orders") {
+		mh.client.logger.Printf("Routing to order update handler")
 		return mh.handleOrderUpdate(parsed.Payload)
-	} else if strings.HasPrefix(parsed.ReferenceID, "balance-") {
-		//mh.client.logger.Printf("Routing to portfolio update handler")
+	} else if strings.Contains(parsed.ReferenceID, "balance") {
+		mh.client.logger.Printf("Routing to portfolio update handler")
 		return mh.handlePortfolioUpdate(parsed.Payload)
-	} else if strings.HasPrefix(parsed.ReferenceID, "session-") {
+	} else if strings.Contains(parsed.ReferenceID, "session") {
 		mh.client.logger.Printf("Routing to session update handler")
 		mh.client.handleSessionEvent(parsed.Payload)
 		return nil
@@ -117,6 +118,7 @@ func (mh *MessageHandler) handlePriceUpdate(payload []byte) error {
 	// Process each price update in the array
 	for _, priceData := range priceUpdates {
 		// Convert to PriceUpdate for strategy manager
+		// TODO: check if FX and futures has different handling
 		priceUpdate, err := mh.convertPriceData(priceData)
 		if err != nil {
 			mh.client.logger.Printf("Failed to convert price data: %v", err)

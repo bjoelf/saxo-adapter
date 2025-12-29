@@ -41,10 +41,6 @@ type SaxoWebSocketClient struct {
 	connectionErrors    chan error            // Buffer 10 errors - reader reports errors to processor
 	reconnectionTrigger chan error            // Buffer 5 reconnection requests - prevents deadlock
 
-	// Reconnection handler lifecycle (singleton pattern)
-	reconnectionHandlerRunning bool
-	reconnectionHandlerMu      sync.Mutex
-
 	// Message tracking - following legacy timeout detection patterns
 	lastMessageTimestamps   map[string]time.Time
 	lastMessageTimestampsMu sync.RWMutex
@@ -63,14 +59,17 @@ type SaxoWebSocketClient struct {
 
 	// NEW: Goroutine lifecycle tracking (CRITICAL for clean shutdown)
 	// Following legacy pattern from broker_websocket.go
-	readerRunning       bool          // Tracks if reader goroutine is active
-	readerDone          chan struct{} // Signals when reader goroutine exits
-	readerMu            sync.Mutex    // Protects reader goroutine state
-	processorRunning    bool          // Tracks if processor goroutine is active
-	processorDone       chan struct{} // Signals when processor goroutine exits
-	processorMu         sync.Mutex    // Protects processor goroutine state
-	reconnectInProgress bool          // Flag to prevent concurrent reconnection attempts
-	reconnectMu         sync.Mutex    // Protects reconnection state
+	readerRunning              bool          // Tracks if reader goroutine is active
+	readerDone                 chan struct{} // Signals when reader goroutine exits
+	readerMu                   sync.Mutex    // Protects reader goroutine state
+	processorRunning           bool          // Tracks if processor goroutine is active
+	processorDone              chan struct{} // Signals when processor goroutine exits
+	processorMu                sync.Mutex    // Protects processor goroutine state
+	reconnectionHandlerRunning bool          // Tracks if reconnection handler goroutine is active
+	reconnectionHandlerDone    chan struct{} // Signals when reconnection handler exits
+	reconnectionHandlerMu      sync.Mutex    // Protects reconnection handler state
+	reconnectInProgress        bool          // Flag to prevent concurrent reconnection attempts
+	reconnectMu                sync.Mutex    // Protects reconnection state
 
 	// Reconnection logic - exponential backoff following legacy patterns
 	maxReconnectAttempts int
@@ -92,7 +91,9 @@ type SaxoWebSocketClient struct {
 // apiBaseURL: For HTTP API calls (e.g., https://gateway.saxobank.com/sim/openapi)
 // websocketURL: For WebSocket connection (e.g., https://sim-streaming.saxobank.com/sim/oapi)
 func NewSaxoWebSocketClient(authClient saxo.AuthClient, apiBaseURL string, websocketURL string, logger *log.Logger) *SaxoWebSocketClient {
-	ctx, cancel := context.WithCancel(context.Background())
+	// NOTE: Context will be created in EstablishConnection(), not here
+	// Following legacy broker_websocket.go pattern where context is created in startWebSocket()
+	// This prevents context lifecycle issues during reconnections
 
 	client := &SaxoWebSocketClient{
 		apiBaseURL:            apiBaseURL,
@@ -108,8 +109,8 @@ func NewSaxoWebSocketClient(authClient saxo.AuthClient, apiBaseURL string, webso
 		incomingMessages:     make(chan websocketMessage, 100), // Buffer 100 messages - prevents blocking
 		connectionErrors:     make(chan error, 10),             // Buffer 10 errors
 		reconnectionTrigger:  make(chan error, 5),              // Buffer 5 reconnection requests
-		ctx:                  ctx,
-		cancel:               cancel,
+		ctx:                  nil,                              // Will be created in EstablishConnection
+		cancel:               nil,                              // Will be created in EstablishConnection
 		maxReconnectAttempts: 10,
 		baseReconnectDelay:   time.Second * 2,
 		lastSequenceNumber:   0,
@@ -140,17 +141,8 @@ func (ws *SaxoWebSocketClient) SetStateChannels(stateChannel chan<- bool, contex
 
 // Connect establishes WebSocket connection following 22:00 UTC lifecycle pattern
 func (ws *SaxoWebSocketClient) Connect(ctx context.Context) error {
-	// CRITICAL: Start reconnection handler ONCE (singleton pattern)
-	// Following legacy broker_websocket.go pattern - should NOT be restarted on reconnection
-	ws.reconnectionHandlerMu.Lock()
-	if !ws.reconnectionHandlerRunning {
-		ws.logger.Println("Connect: Starting reconnection handler (singleton)")
-		go ws.handleReconnectionRequests()
-		ws.reconnectionHandlerRunning = true
-	}
-	ws.reconnectionHandlerMu.Unlock()
-
-	// Delegate to connection manager following separation of concerns
+	// Delegate to connection manager - following legacy startWebSocket() pattern
+	// EstablishConnection will start ALL goroutines with unified lifecycle
 	err := ws.connectionManager.EstablishConnection(ctx)
 
 	// Notify OAuth client of connection state change
@@ -606,7 +598,10 @@ func (ws *SaxoWebSocketClient) handleConnectionError(err error) {
 
 // Close terminates WebSocket connection following 21:00 UTC shutdown pattern
 func (ws *SaxoWebSocketClient) Close() error {
-	ws.cancel() // Cancel context to stop goroutines
+	// Cancel context to stop goroutines (if context exists)
+	if ws.cancel != nil {
+		ws.cancel()
+	}
 
 	// Notify OAuth client of disconnection
 	if ws.stateChannel != nil {
@@ -651,6 +646,23 @@ func (ws *SaxoWebSocketClient) Close() error {
 		}
 	}
 
+	// CRITICAL: Wait for RECONNECTION HANDLER goroutine to exit cleanly
+	// Following legacy pattern - ensure no goroutine leaks
+	ws.reconnectionHandlerMu.Lock()
+	reconnectionHandlerIsRunning := ws.reconnectionHandlerRunning
+	reconnectionHandlerDoneChannel := ws.reconnectionHandlerDone
+	ws.reconnectionHandlerMu.Unlock()
+
+	if reconnectionHandlerIsRunning && reconnectionHandlerDoneChannel != nil {
+		ws.logger.Println("Close: Waiting for reconnection handler goroutine to exit...")
+		select {
+		case <-reconnectionHandlerDoneChannel:
+			ws.logger.Println("Close: Reconnection handler exited cleanly")
+		case <-time.After(5 * time.Second):
+			ws.logger.Println("Close: Reconnection handler exit timeout (forced shutdown)")
+		}
+	}
+
 	// Delegate to connection manager for actual connection cleanup
 	return ws.connectionManager.CloseConnection()
 }
@@ -659,6 +671,28 @@ func (ws *SaxoWebSocketClient) Close() error {
 // Following legacy broker_websocket.go breakthrough pattern - CRITICAL FIX
 // This prevents deadlock where processor goroutine tries to reconnect while needing to exit
 func (ws *SaxoWebSocketClient) handleReconnectionRequests() {
+	// Track goroutine lifecycle following legacy pattern
+	ws.reconnectionHandlerMu.Lock()
+	ws.reconnectionHandlerRunning = true
+	ws.reconnectionHandlerDone = make(chan struct{})
+	ws.reconnectionHandlerMu.Unlock()
+
+	defer func() {
+		ws.reconnectionHandlerMu.Lock()
+		ws.reconnectionHandlerRunning = false
+		if ws.reconnectionHandlerDone != nil {
+			close(ws.reconnectionHandlerDone)
+			ws.reconnectionHandlerDone = nil
+		}
+		ws.reconnectionHandlerMu.Unlock()
+		ws.logger.Println("handleReconnectionRequests: Reconnection handler exiting")
+
+		// Panic recovery
+		if r := recover(); r != nil {
+			ws.logger.Printf("Panic in handleReconnectionRequests: %v", r)
+		}
+	}()
+
 	ws.logger.Println("handleReconnectionRequests: Reconnection handler started")
 	for {
 		select {
@@ -668,9 +702,9 @@ func (ws *SaxoWebSocketClient) handleReconnectionRequests() {
 		case err := <-ws.reconnectionTrigger:
 			ws.logger.Printf("handleReconnectionRequests: Processing reconnection request for error: %v", err)
 
-			// Wait 1 minute before attempting reconnection (gives time for cleanup)
+			// Wait 15 seconds before attempting reconnection (gives time for cleanup)
 			// Following legacy pattern - prevents rapid reconnection spam
-			time.Sleep(1 * time.Minute)
+			time.Sleep(15 * time.Second)
 
 			// Attempt reconnection
 			reconnectErr := ws.reconnectWebSocket()
@@ -705,8 +739,10 @@ func (ws *SaxoWebSocketClient) reconnectWebSocket() error {
 
 	// CRITICAL: Close existing connection and wait for goroutines to exit
 	if ws.conn != nil {
-		// Cancel context to signal goroutines to stop
-		ws.cancel()
+		// Cancel context to signal goroutines to stop (if context exists)
+		if ws.cancel != nil {
+			ws.cancel()
+		}
 
 		// Wait for reader to exit
 		ws.readerMu.Lock()
@@ -744,8 +780,8 @@ func (ws *SaxoWebSocketClient) reconnectWebSocket() error {
 		ws.connectionManager.CloseConnection()
 	}
 
-	// Create new context for new connection
-	ws.ctx, ws.cancel = context.WithCancel(context.Background())
+	// NOTE: Context will be created in EstablishConnection, not here
+	// Following legacy pattern where startWebSocket creates context right before goroutines
 
 	// Wait before reconnecting (exponential backoff)
 	backoffDuration := time.Second * 10

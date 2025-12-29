@@ -140,6 +140,12 @@ func (cm *ConnectionManager) EstablishConnection(ctx context.Context) error {
 	// NEW: Start separated reader/processor/reconnection goroutines
 	// Following legacy broker_websocket.go breakthrough pattern - CRITICAL FIX
 
+	// CRITICAL: Create NEW context right before starting goroutines
+	// Following legacy startWebSocket pattern (broker_websocket.go:167)
+	// This ensures goroutines use a fresh, non-canceled context
+	cm.client.logger.Println("EstablishConnection: Creating fresh context for goroutines")
+	cm.client.ctx, cm.client.cancel = context.WithCancel(context.Background())
+
 	cm.client.logger.Println("EstablishConnection: Starting goroutines...")
 
 	// Start reader goroutine (ONLY reads from WebSocket)
