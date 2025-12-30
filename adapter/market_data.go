@@ -314,32 +314,3 @@ func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument I
 
 	return historicalData, nil
 }
-
-// Subscribe sets up real-time price subscriptions (placeholder implementation)
-// TODO: Implement actual WebSocket-based price streaming
-func (sbc *SaxoBrokerClient) Subscribe(ctx context.Context, instruments []string) (<-chan PriceUpdate, error) {
-	sbc.logger.Printf("Subscribe: Setting up price subscriptions for %d instruments", len(instruments))
-
-	// For now, return a placeholder channel
-	// In a full implementation, this would establish WebSocket connections
-	// and stream real-time price updates
-	updatesChan := make(chan PriceUpdate, 100)
-
-	// TODO: Replace with actual WebSocket implementation
-	// This would connect to Saxo's streaming API and forward price updates
-	sbc.logger.Printf("Warning: Subscribe method not fully implemented - using placeholder")
-
-	return updatesChan, nil
-}
-
-// Unsubscribe removes real-time price subscriptions (placeholder implementation)
-// TODO: Implement actual WebSocket cleanup
-func (sbc *SaxoBrokerClient) Unsubscribe(ctx context.Context, instruments []string) error {
-	sbc.logger.Printf("Unsubscribe: Removing price subscriptions for %d instruments", len(instruments))
-
-	// TODO: Replace with actual WebSocket cleanup
-	// This would disconnect from Saxo's streaming API
-	sbc.logger.Printf("Warning: Unsubscribe method not fully implemented - using placeholder")
-
-	return nil
-}

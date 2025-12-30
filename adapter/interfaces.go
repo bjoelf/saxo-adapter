@@ -58,8 +58,6 @@ type BrokerClient interface {
 	GetInstrumentPrices(ctx context.Context, uics []int, fieldGroups string) ([]InstrumentPriceInfo, error)
 
 	// Market data operations (consolidated from MarketDataClient)
-	Subscribe(ctx context.Context, instruments []string) (<-chan PriceUpdate, error)
-	Unsubscribe(ctx context.Context, instruments []string) error
 	GetInstrumentPrice(ctx context.Context, instrument Instrument) (*PriceData, error)
 	GetHistoricalData(ctx context.Context, instrument Instrument, days int) ([]HistoricalDataPoint, error)
 	GetAccountInfo(ctx context.Context) (*AccountInfo, error)
@@ -201,7 +199,7 @@ type RelatedOrder struct {
 // PriceUpdate represents a price update from market data
 // Uses Saxo's native UIC (Universal Instrument Code) for matching
 type PriceUpdate struct {
-	Uic       int       // Saxo's Universal Instrument Code (matches Instrument.Identifier)
+	Uic       int // Saxo's Universal Instrument Code (matches Instrument.Identifier)
 	Bid       float64
 	Ask       float64
 	Mid       float64
