@@ -223,10 +223,8 @@ func (cm *ConnectionManager) reconnectWithBackoff() {
 			continue
 		}
 
-		// Resubscribe to all previous subscriptions - critical for continuity
-		// keepCurrentReferenceIds=false: generate new IDs after reconnection
-		// targetReferenceIds=nil: resubscribe to all subscriptions
-		if err := cm.client.subscriptionManager.HandleSubscriptions(false, nil); err != nil {
+		// Resubscribe to all previous subscriptions with new reference IDs
+		if err := cm.client.subscriptionManager.HandleSubscriptions(nil); err != nil {
 			cm.client.logger.Printf("Resubscription failed after reconnection: %v", err)
 			cm.handleConnectionClosed()
 			continue

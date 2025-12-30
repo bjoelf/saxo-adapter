@@ -368,16 +368,14 @@ func (sm *SubscriptionManager) generateNewReferenceId(oldReferenceId string) str
 // Reference: https://www.developer.saxo/openapi/learn/streaming
 //
 // Parameters:
-//   - keepCurrentReferenceIds: If true, reuses existing reference IDs; if false, generates new ones
 //   - targetReferenceIds: Specific reference IDs to resubscribe (empty = all subscriptions)
 //     CRITICAL: These are actual Saxo reference IDs (e.g., "FxSpotprices-20251220-145408"),
 //     NOT internal subscription type keys (e.g., "price_feed")
 //
 // Usage scenarios:
-//   - Full reconnection: HandleSubscriptions(false, nil) - new IDs, all subscriptions
-//   - Subscription reset: HandleSubscriptions(false, []string{"FxSpotprices-20251220-145408"}) - new ID for specific subscription
-//   - Partial refresh: HandleSubscriptions(true, []string{"order_updates"}) - keep ID, refresh specific subscription
-func (sm *SubscriptionManager) HandleSubscriptions(keepCurrentReferenceIds bool, targetReferenceIds []string) error {
+//   - Full reconnection: HandleSubscriptions(nil) - new IDs, all subscriptions
+//   - Subscription reset: HandleSubscriptions([]string{"FxSpotprices-20251220-145408"}) - new ID for specific subscription
+func (sm *SubscriptionManager) HandleSubscriptions(targetReferenceIds []string) error {
 	sm.subscriptionMu.Lock()
 	defer sm.subscriptionMu.Unlock()
 
@@ -386,7 +384,7 @@ func (sm *SubscriptionManager) HandleSubscriptions(keepCurrentReferenceIds bool,
 	if len(targetReferenceIds) == 0 {
 		// Resubscribe all subscriptions
 		subsToProcess = sm.subscriptions
-		sm.client.logger.Printf("ResubscribeAll: Resubscribing to ALL %d subscriptions via HTTP POST (keepIDs=%v)", len(sm.subscriptions), keepCurrentReferenceIds)
+		sm.client.logger.Printf("ResubscribeAll: Resubscribing to ALL %d subscriptions via HTTP POST", len(sm.subscriptions))
 	} else {
 		// Resubscribe only specific subscriptions by matching ReferenceId field
 		// CRITICAL: targetReferenceIds contains actual Saxo reference IDs (e.g., "FxSpotprices-20251220-145408")
@@ -415,7 +413,7 @@ func (sm *SubscriptionManager) HandleSubscriptions(keepCurrentReferenceIds bool,
 			}
 		}
 
-		sm.client.logger.Printf("ResubscribeAll: Resubscribing to %d specific subscriptions via HTTP POST (keepIDs=%v)", len(subsToProcess), keepCurrentReferenceIds)
+		sm.client.logger.Printf("ResubscribeAll: Resubscribing to %d specific subscriptions via HTTP POST", len(subsToProcess))
 	}
 
 	if len(subsToProcess) == 0 {
@@ -423,37 +421,22 @@ func (sm *SubscriptionManager) HandleSubscriptions(keepCurrentReferenceIds bool,
 		return nil
 	}
 
-	// Reestablish subscriptions via HTTP POST
+	// Reestablish subscriptions via HTTP POST with new reference IDs
 	for refId, subscription := range subsToProcess {
 		oldReferenceId := subscription.ReferenceId
-		var newReferenceId string
-		var subscriptionReq map[string]interface{}
 
-		if keepCurrentReferenceIds {
-			// Keep existing reference ID
-			newReferenceId = oldReferenceId
-			subscriptionReq = map[string]interface{}{
-				"ContextId":   sm.client.contextID,
-				"ReferenceId": newReferenceId,
-				"RefreshRate": 1000,
-				"Format":      "application/json",
-				"Arguments":   subscription.Arguments,
-			}
-			sm.client.logger.Printf("  Resubscribing '%s' (keeping ID: %s)", refId, newReferenceId)
-		} else {
-			// Generate new reference ID by replacing timestamp
-			newReferenceId = sm.generateNewReferenceId(oldReferenceId)
-			subscriptionReq = map[string]interface{}{
-				"ContextId":          sm.client.contextID,
-				"ReferenceId":        newReferenceId,
-				"ReplaceReferenceId": oldReferenceId, // Atomic replacement per Saxo docs
-				"RefreshRate":        1000,
-				"Format":             "application/json",
-				"Arguments":          subscription.Arguments,
-			}
-			sm.client.logger.Printf("  Resubscribing '%s' (old: %s -> new: %s, ReplaceReferenceId: %s)",
-				refId, oldReferenceId, newReferenceId, oldReferenceId)
+		// Generate new reference ID by replacing timestamp
+		newReferenceId := sm.generateNewReferenceId(oldReferenceId)
+		subscriptionReq := map[string]interface{}{
+			"ContextId":          sm.client.contextID,
+			"ReferenceId":        newReferenceId,
+			"ReplaceReferenceId": oldReferenceId, // Atomic replacement per Saxo docs
+			"RefreshRate":        1000,
+			"Format":             "application/json",
+			"Arguments":          subscription.Arguments,
 		}
+		sm.client.logger.Printf("  Resubscribing '%s' (old: %s -> new: %s)",
+			refId, oldReferenceId, newReferenceId)
 
 		// Use stored endpoint path (single source of truth)
 		endpoint := subscription.EndpointPath
@@ -468,79 +451,27 @@ func (sm *SubscriptionManager) HandleSubscriptions(keepCurrentReferenceIds bool,
 		}
 
 		// Update subscription tracking
-		if !keepCurrentReferenceIds && newReferenceId != oldReferenceId {
-			// Reference ID changed - update tracking
-			subscription.ReferenceId = newReferenceId
-			subscription.EndpointPath = endpoint
-
-			// Update subscription map (if refId was the ReferenceId, update key)
-			if refId == oldReferenceId {
-				sm.subscriptions[newReferenceId] = subscription
-				delete(sm.subscriptions, oldReferenceId)
-			}
-
-			// Clean up old subscription's lastMessageTimestamps to prevent accumulation
-			sm.client.lastMessageTimestampsMu.Lock()
-			if timestamp, exists := sm.client.lastMessageTimestamps[oldReferenceId]; exists {
-				sm.client.lastMessageTimestamps[newReferenceId] = timestamp
-				delete(sm.client.lastMessageTimestamps, oldReferenceId)
-			}
-			sm.client.lastMessageTimestampsMu.Unlock()
-		}
-
-		// Update subscription state
+		// CRITICAL: Map key (refId) stays stable, only ReferenceId field changes
+		subscription.ReferenceId = newReferenceId
 		subscription.State = "Active"
 		subscription.SubscribedAt = time.Now()
 
+		// Clean up old subscription's lastMessageTimestamps
+		sm.client.lastMessageTimestampsMu.Lock()
+		if timestamp, exists := sm.client.lastMessageTimestamps[oldReferenceId]; exists {
+			sm.client.lastMessageTimestamps[newReferenceId] = timestamp
+			delete(sm.client.lastMessageTimestamps, oldReferenceId)
+		}
+		sm.client.lastMessageTimestampsMu.Unlock()
+
 		// Add small delay between resubscriptions to avoid overwhelming server
-		// Only needed when processing multiple subscriptions during reset
-		if !keepCurrentReferenceIds && len(subsToProcess) > 1 {
+		if len(subsToProcess) > 1 {
 			time.Sleep(500 * time.Millisecond)
 		}
 	}
 
 	sm.client.logger.Printf("✅ ResubscribeAll: Successfully resubscribed %d subscriptions", len(subsToProcess))
 	return nil
-}
-
-// UpdateSubscriptionState handles subscription confirmation messages
-func (sm *SubscriptionManager) UpdateSubscriptionState(contextId, state string) {
-	sm.subscriptionMu.Lock()
-	defer sm.subscriptionMu.Unlock()
-
-	if subscription, exists := sm.subscriptions[contextId]; exists {
-		subscription.State = state
-		sm.client.logger.Printf("Subscription %s state updated: %s", contextId, state)
-	}
-}
-
-// RemoveSubscription cleans up subscription following WebSocket shutdown patterns
-func (sm *SubscriptionManager) RemoveSubscription(contextId string) {
-	sm.subscriptionMu.Lock()
-	defer sm.subscriptionMu.Unlock()
-
-	delete(sm.subscriptions, contextId)
-	sm.client.logger.Printf("Removed subscription: %s", contextId)
-}
-
-// GetActiveSubscriptions returns current subscription state for monitoring
-func (sm *SubscriptionManager) GetActiveSubscriptions() map[string]*Subscription {
-	sm.subscriptionMu.RLock()
-	defer sm.subscriptionMu.RUnlock()
-
-	// Return copy to prevent external modification
-	result := make(map[string]*Subscription)
-	for k, v := range sm.subscriptions {
-		result[k] = &Subscription{
-			ContextId:    v.ContextId,
-			ReferenceId:  v.ReferenceId,
-			State:        v.State,
-			SubscribedAt: v.SubscribedAt,
-			Arguments:    v.Arguments,
-		}
-	}
-
-	return result
 }
 
 // HandleSubscriptionReset handles subscription reset requests from Saxo
@@ -605,7 +536,7 @@ func (sm *SubscriptionManager) HandleSubscriptionReset(targetReferenceIds []stri
 
 			// Use ResubscribeAll with specific targets and generate new IDs
 			// Following Saxo API documentation: subscriptions via HTTP POST, not WebSocket writes
-			if err := sm.HandleSubscriptions(false, timedOutSubs); err != nil {
+			if err := sm.HandleSubscriptions(timedOutSubs); err != nil {
 				sm.client.logger.Printf("HandleSubscriptionReset: ResubscribeAll failed: %v", err)
 			}
 		}

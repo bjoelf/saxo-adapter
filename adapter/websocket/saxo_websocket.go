@@ -763,10 +763,8 @@ func (ws *SaxoWebSocketClient) reconnectWebSocket() error {
 		return err
 	}
 
-	// Resubscribe to all previous subscriptions with new context ID
-	// keepCurrentReferenceIds=false: generate new IDs after reconnection
-	// targetReferenceIds=nil: resubscribe to all subscriptions
-	if err := ws.subscriptionManager.HandleSubscriptions(false, nil); err != nil {
+	// Resubscribe to all previous subscriptions with new context ID and new reference IDs
+	if err := ws.subscriptionManager.HandleSubscriptions(nil); err != nil {
 		ws.logger.Printf("reconnectWebSocket: Failed to resubscribe: %v", err)
 		return err
 	}
