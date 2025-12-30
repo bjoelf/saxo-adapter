@@ -115,13 +115,12 @@ func (mh *MessageHandler) handlePriceUpdate(payload []byte) error {
 		return fmt.Errorf("empty price update array")
 	}
 
-	mh.client.logger.Printf("🔍 PARSED: Received %d price updates", len(priceUpdates))
+	//mh.client.logger.Printf("🔍 PARSED: Received %d price updates", len(priceUpdates))
 
 	// Process each price update in the array
-	for i, priceData := range priceUpdates {
+	for _, priceData := range priceUpdates {
 		// DEBUG: Log structured data from Saxo
-		mh.client.logger.Printf("🔍 UPDATE[%d]: UIC=%d, Bid=%.5f, Ask=%.5f, Mid=%.5f, LastUpdated=%s",
-			i, priceData.Uic, priceData.Quote.Bid, priceData.Quote.Ask, priceData.Quote.Mid, priceData.LastUpdated)
+		//mh.client.logger.Printf("🔍 UPDATE[%d]: UIC=%d, Bid=%.5f, Ask=%.5f, Mid=%.5f, LastUpdated=%s", i, priceData.Uic, priceData.Quote.Bid, priceData.Quote.Ask, priceData.Quote.Mid, priceData.LastUpdated)
 
 		// Create PriceUpdate directly from Saxo data - no conversion needed!
 		// Use Saxo's native UIC for signal matching
@@ -133,13 +132,19 @@ func (mh *MessageHandler) handlePriceUpdate(payload []byte) error {
 			Timestamp: time.Now(),
 		}
 
-		mh.client.logger.Printf("🔍 CREATED: UIC=%d, bid=%.5f, ask=%.5f, mid=%.5f",
-			priceUpdate.Uic, priceUpdate.Bid, priceUpdate.Ask, priceUpdate.Mid)
+		//mh.client.logger.Printf("🔍 CREATED: UIC=%d, bid=%.5f, ask=%.5f, mid=%.5f",	priceUpdate.Uic, priceUpdate.Bid, priceUpdate.Ask, priceUpdate.Mid)
+
+		// Skip price updates where ALL values are zero (closed markets, stale data)
+		// If ANY value is non-zero, it's valid and should be sent
+		if priceUpdate.Bid == 0 && priceUpdate.Ask == 0 && priceUpdate.Mid == 0 {
+			//mh.client.logger.Printf("Skipping all-zero price update for UIC %d", priceUpdate.Uic)
+			continue
+		}
 
 		// Send to strategy_manager via channel following legacy coordination patterns
 		select {
 		case mh.client.priceUpdateChan <- priceUpdate:
-			mh.client.logger.Printf("🔍 SENT TO CHANNEL: UIC=%d", priceUpdate.Uic)
+			//mh.client.logger.Printf("🔍 SENT TO CHANNEL: UIC=%d", priceUpdate.Uic)
 		default:
 			mh.client.logger.Printf("Price update channel full, dropping update for UIC %d", priceUpdate.Uic)
 		}
