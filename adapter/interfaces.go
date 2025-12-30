@@ -18,8 +18,8 @@ type AuthClient interface {
 	Login(ctx context.Context) error
 	Logout() error
 	RefreshToken(ctx context.Context) error
+	ReauthorizeWebSocket(ctx context.Context, contextID string) error
 	StartAuthenticationKeeper(provider string)
-	StartTokenEarlyRefresh(ctx context.Context, wsConnected <-chan bool, wsContextID <-chan string)
 	GetBaseURL() string
 	GetWebSocketURL() string
 	SetRedirectURL(provider string, redirectURL string) error
@@ -73,7 +73,6 @@ type WebSocketClient interface {
 	GetPriceUpdateChannel() <-chan PriceUpdate
 	GetOrderUpdateChannel() <-chan OrderUpdate
 	GetPortfolioUpdateChannel() <-chan PortfolioUpdate
-	SetStateChannels(stateChannel chan<- bool, contextIDChannel chan<- string)
 	Close() error
 }
 

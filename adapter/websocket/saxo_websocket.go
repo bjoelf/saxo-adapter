@@ -49,10 +49,6 @@ type SaxoWebSocketClient struct {
 	// Context ID for this WebSocket connection session
 	contextID string
 
-	// State channels for OAuth token refresh coordination
-	stateChannel     chan<- bool   // Sends connection state (true=connected, false=disconnected)
-	contextIDChannel chan<- string // Sends contextID when connection established
-
 	// Lifecycle management - 22:00 UTC patterns
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -79,6 +75,10 @@ type SaxoWebSocketClient struct {
 	// CRITICAL: Saxo API requires ClientKey for order/portfolio subscriptions
 	clientKey   string       // Cached ClientKey from GetClientInfo
 	clientKeyMu sync.RWMutex // Protects ClientKey access
+
+	// Token refresh timer - following legacy broker_websocket.go pattern
+	// Timer fires ~18 minutes (2 min before token expires) to reauthorize WebSocket
+	tokenRefreshTimer *time.Timer
 }
 
 // NewSaxoWebSocketClient creates WebSocket client following legacy broker_websocket.go patterns
@@ -123,40 +123,11 @@ func NewSaxoWebSocketClient(authClient saxo.AuthClient, apiBaseURL string, webso
 	return client
 }
 
-// SetStateChannels configures channels for OAuth token refresh coordination
-// This allows the WebSocket to notify the OAuth client when connection state changes
-func (ws *SaxoWebSocketClient) SetStateChannels(stateChannel chan<- bool, contextIDChannel chan<- string) {
-	ws.stateChannel = stateChannel
-	ws.contextIDChannel = contextIDChannel
-}
-
 // Connect establishes WebSocket connection following 22:00 UTC lifecycle pattern
 func (ws *SaxoWebSocketClient) Connect(ctx context.Context) error {
 	// Delegate to connection manager - following legacy startWebSocket() pattern
 	// EstablishConnection will start ALL goroutines with unified lifecycle
-	err := ws.connectionManager.EstablishConnection(ctx)
-
-	// Notify OAuth client of connection state change
-	if err == nil && ws.stateChannel != nil {
-		select {
-		case ws.stateChannel <- true:
-			ws.logger.Println("WebSocket: Notified OAuth client of connection")
-		default:
-			ws.logger.Println("WebSocket: OAuth state channel full, skipping notification")
-		}
-
-		// Send contextID for re-authorization
-		if ws.contextIDChannel != nil && ws.contextID != "" {
-			select {
-			case ws.contextIDChannel <- ws.contextID:
-				ws.logger.Printf("WebSocket: Sent contextID to OAuth client: %s", ws.contextID)
-			default:
-				ws.logger.Println("WebSocket: OAuth contextID channel full, skipping notification")
-			}
-		}
-	}
-
-	return err
+	return ws.connectionManager.EstablishConnection(ctx)
 }
 
 // SubscribeToPrices delegates to subscription manager following clean architecture
@@ -572,16 +543,6 @@ func (ws *SaxoWebSocketClient) Close() error {
 		ws.cancel()
 	}
 
-	// Notify OAuth client of disconnection
-	if ws.stateChannel != nil {
-		select {
-		case ws.stateChannel <- false:
-			ws.logger.Println("WebSocket: Notified OAuth client of disconnection")
-		default:
-			ws.logger.Println("WebSocket: OAuth state channel full, skipping notification")
-		}
-	}
-
 	// CRITICAL: Wait for READER goroutine to exit cleanly
 	// Following legacy broker_websocket.go cleanup pattern
 	ws.readerMu.Lock()
@@ -846,4 +807,131 @@ func (ws *SaxoWebSocketClient) upgradeSessionCapabilities() error {
 
 	ws.logger.Println("✅ Session upgraded to FullTradingAndChat successfully")
 	return nil
+}
+
+// startTokenRefreshTimer sets up the initial token refresh timer
+// Returns the time until token expiry
+// Following legacy broker_websocket.go pattern (lines 213-261)
+func (c *SaxoWebSocketClient) startTokenRefreshTimer() time.Duration {
+	c.logger.Println("startTokenRefreshTimer: Setting up token refresh timer")
+
+	// Get current token to check expiry
+	// CRITICAL: We can't call getValidToken as that's in oauth package
+	// Instead, we rely on authClient being authenticated before WebSocket connection
+	accessToken, err := c.authClient.GetAccessToken()
+	if err != nil {
+		c.logger.Printf("startTokenRefreshTimer: Failed to get access token: %v", err)
+		return -1 * time.Second
+	}
+
+	// Get token expiry - we need to call a method that gives us expiry time
+	// For now, assume standard 20-minute expiry from connection time
+	// TODO: Enhance AuthClient interface to expose token expiry time
+	expiryTime := 20 * time.Minute
+	c.logger.Printf("startTokenRefreshTimer: Token expires in %s (estimated)", expiryTime)
+
+	// Stop any existing timer before creating a new one
+	if c.tokenRefreshTimer != nil {
+		if !c.tokenRefreshTimer.Stop() {
+			// Timer already fired or was stopped, drain the channel if needed
+			select {
+			case <-c.tokenRefreshTimer.C:
+			default:
+			}
+		}
+		c.logger.Println("startTokenRefreshTimer: Stopped existing token refresh timer")
+	}
+
+	// Calculate when to fire: 2 minutes before token expires
+	// Following legacy pattern: fireIn = expiryTime - 2*time.Minute (~18 minutes)
+	fireIn := expiryTime - 2*time.Minute
+	if fireIn < 0 {
+		fireIn = 30 * time.Second // Token expires very soon, try again in 30s
+		c.logger.Printf("startTokenRefreshTimer: WARNING - Token expires in less than 2 minutes, scheduling immediate retry")
+	}
+
+	// Create timer that will call refreshTokenAndReschedule
+	// Following legacy pattern: time.AfterFunc with method reference
+	c.tokenRefreshTimer = time.AfterFunc(fireIn, c.refreshTokenAndReschedule)
+	c.logger.Printf("startTokenRefreshTimer: Timer set to fire in %s (2 minutes before token expiry)", fireIn)
+
+	// Verify we have a valid token
+	if len(accessToken) == 0 {
+		c.logger.Println("startTokenRefreshTimer: WARNING - Access token is empty")
+		return -1 * time.Second
+	}
+
+	return expiryTime
+}
+
+// refreshTokenAndReschedule is the callback that refreshes token and ALWAYS reschedules itself
+// Following legacy broker_websocket.go pattern (lines 263-308)
+func (c *SaxoWebSocketClient) refreshTokenAndReschedule() {
+	// CRITICAL: Always reschedule timer at the end, regardless of success/failure
+	// Following legacy pattern with defer
+	defer func() {
+		if r := recover(); r != nil {
+			c.logger.Printf("Panic in refreshTokenAndReschedule: %v", r)
+			// Even on panic, try to reschedule
+			c.scheduleNextRefresh()
+			return
+		}
+		// Normal path: reschedule at the end
+		c.scheduleNextRefresh()
+	}()
+
+	c.logger.Println("refreshTokenAndReschedule: Timer fired, checking if refresh needed")
+
+	// Check if WebSocket connection exists
+	// Following legacy pattern: if ws.Connection == nil (line 293)
+	if c.conn == nil {
+		c.logger.Println("refreshTokenAndReschedule: No WebSocket connection to reauthorize")
+		return // Still reschedules via defer
+	}
+
+	// Check if we have a context ID
+	if c.contextID == "" {
+		c.logger.Println("refreshTokenAndReschedule: No context ID available")
+		return
+	}
+
+	// Perform the token refresh via WebSocket reauthorization
+	// Following legacy pattern: ws.reAuthoriseWebSocket() (line 300)
+	c.logger.Println("refreshTokenAndReschedule: Attempting to reauthorize WebSocket connection")
+	err := c.authClient.ReauthorizeWebSocket(context.Background(), c.contextID)
+	if err != nil {
+		c.logger.Printf("refreshTokenAndReschedule: Reauthorization failed: %v", err)
+		return
+	}
+	c.logger.Println("refreshTokenAndReschedule: Token refreshed successfully")
+}
+
+// scheduleNextRefresh calculates when the next refresh should occur and schedules it
+// Following legacy broker_websocket.go pattern (lines 310-344)
+func (c *SaxoWebSocketClient) scheduleNextRefresh() {
+	// Assume standard 20-minute token expiry
+	// In production, token was just refreshed, so we have fresh 20 minutes
+	expiryTime := 20 * time.Minute
+
+	// Calculate next fire time: 2 minutes before expiry
+	// Following legacy pattern: nextFire = expiryTime - 2*time.Minute
+	nextFire := expiryTime - 2*time.Minute
+
+	// If token expires in less than 2 minutes, try again soon
+	if nextFire < 0 {
+		nextFire = 30 * time.Second
+		c.logger.Printf("scheduleNextRefresh: Token expires soon, will retry in 30s")
+	}
+
+	// Reset the timer
+	// Following legacy pattern: ws.tokenRefreshTimer.Reset(nextFire)
+	if c.tokenRefreshTimer != nil {
+		c.tokenRefreshTimer.Reset(nextFire)
+		c.logger.Printf("scheduleNextRefresh: Timer rescheduled to fire in %s", nextFire)
+	} else {
+		// Timer was nil (shouldn't happen, but handle it)
+		c.logger.Println("scheduleNextRefresh: WARNING - Timer was nil, creating new timer")
+		c.tokenRefreshTimer = time.AfterFunc(nextFire, c.refreshTokenAndReschedule)
+		c.logger.Printf("scheduleNextRefresh: New timer created to fire in %s", nextFire)
+	}
 }

@@ -172,6 +172,18 @@ func (cm *ConnectionManager) EstablishConnection(ctx context.Context) error {
 	cm.client.logger.Println("  - Starting subscription monitoring goroutine")
 	go cm.startSubscriptionMonitoring()
 
+	// Start token refresh timer - CRITICAL for keeping WebSocket alive
+	// Following legacy broker_websocket.go pattern (line 165)
+	cm.client.logger.Println("  - Starting token refresh timer")
+	timeleft := cm.client.startTokenRefreshTimer()
+	cm.client.logger.Printf("    Token expires in %s, refresh scheduled", timeleft)
+
+	// If token has negative timeleft, then the token has expired
+	if timeleft < 0 {
+		cm.client.logger.Println("❌ EstablishConnection: Token has expired, refresh failed")
+		return fmt.Errorf("token has expired, refresh failed")
+	}
+
 	cm.client.logger.Println("===============================================")
 	cm.client.logger.Println("✅ EstablishConnection: All goroutines started successfully")
 	cm.client.logger.Println("===============================================")

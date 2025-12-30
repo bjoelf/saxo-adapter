@@ -133,10 +133,14 @@ func (sm *SubscriptionManager) SubscribeToInstrumentPrices(instruments []string,
 		EndpointPath: EndpointPrices,
 	}
 
-	sm.subscriptions["price_feed"] = subscription
+	// Use asset type in map key to support multiple price subscriptions
+	// Example keys: "price_feed_FxSpot", "price_feed_ContractFutures"
+	mapKey := "price_feed_" + assetType
+	sm.subscriptions[mapKey] = subscription
 
 	sm.client.logger.Println("===============================================")
 	sm.client.logger.Printf("✅ SubscribeToInstrumentPrices: Successfully subscribed to prices")
+	sm.client.logger.Printf("✅ Subscription key: %s", mapKey)
 	sm.client.logger.Printf("✅ ReferenceId: %s", referenceId)
 	sm.client.logger.Printf("   Instruments: %v", instruments)
 	sm.client.logger.Printf("   UICs: %v", uics)

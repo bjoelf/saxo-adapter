@@ -93,6 +93,14 @@ func (m *MockAuthClient) StartTokenEarlyRefresh(ctx context.Context, wsConnected
 	// Mock implementation - no-op for testing
 }
 
+// ReauthorizeWebSocket reauthorizes WebSocket connection (mock implementation)
+func (m *MockAuthClient) ReauthorizeWebSocket(ctx context.Context, contextID string) error {
+	if m.shouldError {
+		return fmt.Errorf("mock reauthorization error")
+	}
+	return nil
+}
+
 // GetHTTPClient returns authenticated HTTP client - MISSING METHOD
 func (m *MockAuthClient) GetHTTPClient(ctx context.Context) (*http.Client, error) {
 	if m.shouldError {

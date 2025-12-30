@@ -32,6 +32,9 @@ func (m *MockAuthClient) RefreshToken(ctx context.Context) error    { return nil
 func (m *MockAuthClient) StartAuthenticationKeeper(provider string) {}
 func (m *MockAuthClient) StartTokenEarlyRefresh(ctx context.Context, wsConnected <-chan bool, wsContextID <-chan string) {
 }
+func (m *MockAuthClient) ReauthorizeWebSocket(ctx context.Context, contextID string) error {
+	return nil
+}
 
 // GetBaseURL returns mock base URL
 func (m *MockAuthClient) GetBaseURL() string {
