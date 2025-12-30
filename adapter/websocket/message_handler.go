@@ -81,16 +81,16 @@ func (mh *MessageHandler) handleDataMessage(parsed *ParsedMessage) error {
 
 	// Route based on reference ID prefix (human-readable IDs like "prices-20251119-132309")
 	// Match by subscription type prefix to handle dynamic timestamp suffixes
-	if strings.Contains(parsed.ReferenceID, "prices") {
+	if strings.Contains(parsed.ReferenceID, PricesSubscriptionKey) {
 		//mh.client.logger.Printf("Routing to price update handler")
 		return mh.handlePriceUpdate(parsed.Payload)
-	} else if strings.Contains(parsed.ReferenceID, "orders") {
+	} else if strings.Contains(parsed.ReferenceID, OrderUpdatesSubscriptionKey) {
 		//mh.client.logger.Printf("Routing to order update handler")
 		return mh.handleOrderUpdate(parsed.Payload)
-	} else if strings.Contains(parsed.ReferenceID, "balance") {
+	} else if strings.Contains(parsed.ReferenceID, PortfolioBalanceSubscriptionKey) {
 		//mh.client.logger.Printf("Routing to portfolio update handler")
 		return mh.handlePortfolioUpdate(parsed.Payload)
-	} else if strings.Contains(parsed.ReferenceID, "session") {
+	} else if strings.Contains(parsed.ReferenceID, SessionEventsSubscriptionKey) {
 		//mh.client.logger.Printf("Routing to session update handler")
 		mh.client.handleSessionEvent(parsed.Payload)
 		return nil

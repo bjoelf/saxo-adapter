@@ -22,6 +22,13 @@ const (
 	EndpointSessionEvents = "/root/v1/sessions/events/subscriptions/active"
 )
 
+const (
+	PricesSubscriptionKey           = "prices"
+	OrderUpdatesSubscriptionKey     = "orders"
+	PortfolioBalanceSubscriptionKey = "balance"
+	SessionEventsSubscriptionKey    = "session"
+)
+
 // SubscriptionManager handles WebSocket subscription lifecycle following Saxo streaming API
 // Per documentation: Subscriptions are sent via HTTP POST, WebSocket is read-only
 type SubscriptionManager struct {
@@ -93,7 +100,7 @@ func (sm *SubscriptionManager) SubscribeToInstrumentPrices(instruments []string,
 	}
 
 	// Generate human-readable reference ID following legacy pattern
-	feedReferenceId := assetType + "-prices"
+	feedReferenceId := assetType + "-" + PricesSubscriptionKey
 	referenceId := generateHumanReadableID(feedReferenceId)
 
 	subscriptionReq := map[string]interface{}{
@@ -151,10 +158,13 @@ func (sm *SubscriptionManager) SubscribeToOrderUpdates(clientKey string) error {
 		return fmt.Errorf("WebSocket not connected - no context ID")
 	}
 
+	// Generate human-readable reference ID following legacy pattern
+	referenceId := generateHumanReadableID(OrderUpdatesSubscriptionKey)
+
 	// Saxo order streaming subscription following API documentation
 	subscriptionReq := map[string]interface{}{
 		"ContextId":   contextId,
-		"ReferenceId": "order_updates",
+		"ReferenceId": referenceId,
 		"RefreshRate": 1000,
 		"Format":      "application/json",
 		"Arguments": map[string]interface{}{
@@ -168,7 +178,7 @@ func (sm *SubscriptionManager) SubscribeToOrderUpdates(clientKey string) error {
 
 	subscription := &Subscription{
 		ContextId:    contextId,
-		ReferenceId:  "order_updates",
+		ReferenceId:  referenceId,
 		State:        "Active",
 		SubscribedAt: time.Now(),
 		Arguments:    subscriptionReq["Arguments"].(map[string]interface{}),
@@ -193,10 +203,13 @@ func (sm *SubscriptionManager) SubscribeToPortfolioUpdates(clientKey string) err
 		return fmt.Errorf("WebSocket not connected - no context ID")
 	}
 
+	// Generate human-readable reference ID following legacy pattern
+	referenceId := generateHumanReadableID(PortfolioBalanceSubscriptionKey)
+
 	// Portfolio balance subscription following API documentation
 	subscriptionReq := map[string]interface{}{
 		"ContextId":   contextId,
-		"ReferenceId": "portfolio_balance",
+		"ReferenceId": referenceId,
 		"RefreshRate": 1000,
 		"Format":      "application/json",
 		"Arguments": map[string]interface{}{
@@ -210,7 +223,7 @@ func (sm *SubscriptionManager) SubscribeToPortfolioUpdates(clientKey string) err
 
 	subscription := &Subscription{
 		ContextId:    contextId,
-		ReferenceId:  "portfolio_balance",
+		ReferenceId:  referenceId,
 		State:        "Active",
 		SubscribedAt: time.Now(),
 		Arguments:    subscriptionReq["Arguments"].(map[string]interface{}),
@@ -237,7 +250,7 @@ func (sm *SubscriptionManager) SubscribeToSessionEvents() error {
 	}
 
 	// Generate human-readable reference ID following legacy pattern
-	referenceId := generateHumanReadableID("session_events")
+	referenceId := generateHumanReadableID(SessionEventsSubscriptionKey)
 
 	// Session events subscription following API documentation
 	// This subscription has minimal arguments - monitors connection health
