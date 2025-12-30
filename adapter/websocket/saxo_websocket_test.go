@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	saxo "github.com/bjoelf/saxo-adapter/adapter"
 	"github.com/bjoelf/saxo-adapter/adapter/websocket/mocktesting"
 )
 
@@ -115,14 +114,6 @@ func TestSaxoWebSocketClient_PriceSubscription(t *testing.T) {
 	logger := log.New(os.Stdout, "TEST: ", log.LstdFlags)
 	client := NewSaxoWebSocketClient(mockAuth, mockServer.GetBaseURL(), mockServer.GetWebSocketURL(), logger)
 
-	// Register instruments with UICs (following legacy pattern)
-	// Using sample UIC value of 21 and 22 as requested
-	instruments := []*saxo.Instrument{
-		{Ticker: "EURUSD", Identifier: 21, AssetType: "FxSpot"},
-		{Ticker: "GBPUSD", Identifier: 22, AssetType: "FxSpot"},
-	}
-	client.RegisterInstruments(instruments)
-
 	// Connect to mock server
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -133,7 +124,7 @@ func TestSaxoWebSocketClient_PriceSubscription(t *testing.T) {
 	defer client.Close()
 
 	// Test price subscription
-	tickers := []string{"EURUSD", "GBPUSD"}
+	tickers := []string{"21", "22"}
 	if err := client.SubscribeToPrices(ctx, tickers, "FxSpot"); err != nil {
 		t.Fatalf("Failed to subscribe to prices: %v", err)
 	}
@@ -145,14 +136,14 @@ func TestSaxoWebSocketClient_PriceSubscription(t *testing.T) {
 	// Test price update reception
 	go func() {
 		time.Sleep(50 * time.Millisecond)
-		mockServer.SendPriceUpdate("EURUSD", 1.1000, 1.1002)
+		mockServer.SendPriceUpdate("21", 1.1000, 1.1002)
 	}()
 
 	// Listen for price update
 	select {
 	case priceUpdate := <-client.GetPriceUpdateChannel():
-		if priceUpdate.Ticker != "EURUSD" {
-			t.Errorf("Expected ticker EURUSD, got %s", priceUpdate.Ticker)
+		if priceUpdate.Uic != 21 {
+			t.Errorf("Expected UIC 21, got %d", priceUpdate.Uic)
 		}
 		if priceUpdate.Bid != 1.1000 {
 			t.Errorf("Expected bid 1.1000, got %f", priceUpdate.Bid)
@@ -180,13 +171,6 @@ func TestSaxoWebSocketClient_ReconnectionLogic(t *testing.T) {
 	logger := log.New(os.Stdout, "TEST: ", log.LstdFlags)
 	client := NewSaxoWebSocketClient(mockAuth, mockServer.GetBaseURL(), mockServer.GetWebSocketURL(), logger)
 
-	// Register instruments with UICs (following legacy pattern)
-	// Using sample UIC value of 21 as requested
-	instruments := []*saxo.Instrument{
-		{Ticker: "EURUSD", Identifier: 21, AssetType: "FxSpot"},
-	}
-	client.RegisterInstruments(instruments)
-
 	// Connect initially
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -196,7 +180,7 @@ func TestSaxoWebSocketClient_ReconnectionLogic(t *testing.T) {
 	}
 
 	// Subscribe to prices
-	tickers := []string{"EURUSD"}
+	tickers := []string{"21"}
 	if err := client.SubscribeToPrices(ctx, tickers, "FxSpot"); err != nil {
 		t.Fatalf("Failed to subscribe: %v", err)
 	}
@@ -300,6 +284,6 @@ func BenchmarkMessageProcessing(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		mockServer.SendPriceUpdate("EURUSD", 1.1000+float64(i)*0.0001, 1.1002+float64(i)*0.0001)
+		mockServer.SendPriceUpdate("21", 1.1000+float64(i)*0.0001, 1.1002+float64(i)*0.0001)
 	}
 }

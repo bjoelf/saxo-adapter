@@ -89,11 +89,11 @@ func main() {
 	// Step 8: Listen to price updates
 	logger.Println("📊 Listening to real-time prices... (Press Ctrl+C to stop)")
 	logger.Println()
-	fmt.Println("Instrument | Bid      | Ask      | Spread   | Time")
+	fmt.Println("UIC        | Bid      | Ask      | Spread   | Time")
 	fmt.Println("-----------|----------|----------|----------|---------------------")
 
 	// Track price counts for statistics
-	priceCount := make(map[string]int)
+	priceCount := make(map[int]int)
 
 	// Optional: Set a timeout for automatic shutdown (30 seconds)
 	timeout := time.After(30 * time.Second)
@@ -102,19 +102,19 @@ func main() {
 		select {
 		case price := <-priceChannel:
 			// Generic PriceUpdate type - same for all brokers!
-			// Fields: Ticker, Bid, Ask, Mid, Timestamp
+			// Fields: Uic, Bid, Ask, Mid, Timestamp
 			spread := price.Ask - price.Bid
 
 			// Display price update
-			fmt.Printf("%-10s | %.5f | %.5f | %.5f | %s\n",
-				price.Ticker,
+			fmt.Printf("%-10d | %.5f | %.5f | %.5f | %s\n",
+				price.Uic,
 				price.Bid,
 				price.Ask,
 				spread,
 				time.Now().Format("15:04:05"))
 
 			// Track statistics
-			priceCount[price.Ticker]++
+			priceCount[price.Uic]++
 
 		case <-sigChan:
 			logger.Println()
@@ -132,13 +132,13 @@ func main() {
 }
 
 // printStats displays statistics about received price updates
-func printStats(logger *log.Logger, priceCount map[string]int) {
+func printStats(logger *log.Logger, priceCount map[int]int) {
 	logger.Println()
 	logger.Println("=== Price Update Statistics ===")
 
 	total := 0
-	for ticker, count := range priceCount {
-		fmt.Printf("  %s: %d updates\n", ticker, count)
+	for uic, count := range priceCount {
+		fmt.Printf("  UIC %d: %d updates\n", uic, count)
 		total += count
 	}
 
@@ -148,7 +148,7 @@ func printStats(logger *log.Logger, priceCount map[string]int) {
 	logger.Println()
 	logger.Println("Key Takeaways:")
 	logger.Println("  - WebSocketClient is a generic, broker-agnostic interface")
-	logger.Println("  - PriceUpdate is a generic type (Ticker, Bid, Ask, Mid)")
+	logger.Println("  - PriceUpdate uses native broker identifiers (Uic, Bid, Ask, Mid)")
 	logger.Println("  - Same code works with any broker implementing the interface")
 	logger.Println("  - Easy to mock WebSocketClient for testing")
 }

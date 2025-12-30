@@ -115,26 +115,33 @@ func (mh *MessageHandler) handlePriceUpdate(payload []byte) error {
 		return fmt.Errorf("empty price update array")
 	}
 
+	mh.client.logger.Printf("🔍 PARSED: Received %d price updates", len(priceUpdates))
+
 	// Process each price update in the array
-	for _, priceData := range priceUpdates {
-		// Convert to PriceUpdate for strategy manager
-		// TODO: check if FX and futures has different handling
-		priceUpdate, err := mh.convertPriceData(priceData)
-		if err != nil {
-			mh.client.logger.Printf("Failed to convert price data: %v", err)
-			continue
+	for i, priceData := range priceUpdates {
+		// DEBUG: Log structured data from Saxo
+		mh.client.logger.Printf("🔍 UPDATE[%d]: UIC=%d, Bid=%.5f, Ask=%.5f, Mid=%.5f, LastUpdated=%s",
+			i, priceData.Uic, priceData.Quote.Bid, priceData.Quote.Ask, priceData.Quote.Mid, priceData.LastUpdated)
+
+		// Create PriceUpdate directly from Saxo data - no conversion needed!
+		// Use Saxo's native UIC for signal matching
+		priceUpdate := saxo.PriceUpdate{
+			Uic:       priceData.Uic,
+			Bid:       priceData.Quote.Bid,
+			Ask:       priceData.Quote.Ask,
+			Mid:       priceData.Quote.Mid,
+			Timestamp: time.Now(),
 		}
 
-		//mh.client.logger.Printf("✅ Price update parsed: %s bid=%.5f ask=%.5f mid=%.5f",
-		//	priceUpdate.Ticker, priceUpdate.Bid, priceUpdate.Ask, priceUpdate.Mid)
+		mh.client.logger.Printf("🔍 CREATED: UIC=%d, bid=%.5f, ask=%.5f, mid=%.5f",
+			priceUpdate.Uic, priceUpdate.Bid, priceUpdate.Ask, priceUpdate.Mid)
 
 		// Send to strategy_manager via channel following legacy coordination patterns
 		select {
-		case mh.client.priceUpdateChan <- *priceUpdate:
-			// mh.client.logger.Printf("✅ Price update sent to channel: %s", priceUpdate.Ticker)
-			// Price update sent successfully
+		case mh.client.priceUpdateChan <- priceUpdate:
+			mh.client.logger.Printf("🔍 SENT TO CHANNEL: UIC=%d", priceUpdate.Uic)
 		default:
-			mh.client.logger.Printf("Price update channel full, dropping update for %s", priceUpdate.Ticker)
+			mh.client.logger.Printf("Price update channel full, dropping update for UIC %d", priceUpdate.Uic)
 		}
 	}
 
@@ -250,26 +257,6 @@ func (mh *MessageHandler) parsePortfolioData(portfolioData map[string]interface{
 		MarginUsed: marginUsed,
 		MarginFree: marginFree,
 		UpdatedAt:  time.Now(),
-	}, nil
-}
-
-// convertPriceData converts StreamingPriceUpdate to saxo.PriceUpdate
-func (mh *MessageHandler) convertPriceData(priceData StreamingPriceUpdate) (*saxo.PriceUpdate, error) {
-	// Look up ticker from UIC
-	mh.client.mappingMu.RLock()
-	ticker, exists := mh.client.uicToTicker[priceData.Uic]
-	mh.client.mappingMu.RUnlock()
-
-	if !exists {
-		return nil, fmt.Errorf("no ticker mapping for UIC %d", priceData.Uic)
-	}
-
-	return &saxo.PriceUpdate{
-		Ticker:    ticker,
-		Bid:       priceData.Quote.Bid,
-		Ask:       priceData.Quote.Ask,
-		Mid:       priceData.Quote.Mid,
-		Timestamp: time.Now(),
 	}, nil
 }
 

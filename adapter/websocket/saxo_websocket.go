@@ -75,12 +75,6 @@ type SaxoWebSocketClient struct {
 	maxReconnectAttempts int
 	baseReconnectDelay   time.Duration
 
-	// Dynamic UIC mapping (CRITICAL FIX: No more hardcoded UICs)
-	// fx.json is the single source of truth for FX instrument UICs
-	uicToTicker map[int]string // Maps Saxo UIC -> Ticker for price message routing
-	tickerToUic map[string]int // Maps Ticker -> Saxo UIC for subscription requests
-	mappingMu   sync.RWMutex   // Protects UIC mapping access
-
 	// ClientKey for order and portfolio subscriptions (fetched from /port/v1/users/me)
 	// CRITICAL: Saxo API requires ClientKey for order/portfolio subscriptions
 	clientKey   string       // Cached ClientKey from GetClientInfo
@@ -114,9 +108,6 @@ func NewSaxoWebSocketClient(authClient saxo.AuthClient, apiBaseURL string, webso
 		maxReconnectAttempts: 10,
 		baseReconnectDelay:   time.Second * 2,
 		lastSequenceNumber:   0,
-		// Initialize dynamic UIC mapping (no hardcoded values)
-		uicToTicker: make(map[int]string),
-		tickerToUic: make(map[string]int),
 	}
 
 	// Initialize component managers following clean architecture patterns
@@ -245,28 +236,6 @@ func (ws *SaxoWebSocketClient) SubscribeToSessionEvents(ctx context.Context) err
 // Channel accessor methods for strategy_manager integration
 func (ws *SaxoWebSocketClient) GetPriceUpdateChannel() <-chan saxo.PriceUpdate {
 	return ws.priceUpdateChan
-}
-
-// RegisterInstruments builds dynamic UIC<->Ticker mapping from instrument metadata
-// CRITICAL: fx.json is the single source of truth - no hardcoded UICs allowed
-// This must be called before subscribing to prices
-func (ws *SaxoWebSocketClient) RegisterInstruments(instruments []*saxo.Instrument) {
-	ws.mappingMu.Lock()
-	defer ws.mappingMu.Unlock()
-
-	ws.uicToTicker = make(map[int]string)
-	ws.tickerToUic = make(map[string]int)
-
-	for _, inst := range instruments {
-		ws.uicToTicker[inst.Identifier] = inst.Ticker
-		ws.tickerToUic[inst.Ticker] = inst.Identifier
-	}
-
-	ws.logger.Printf("WebSocket: Registered %d instruments for UIC mapping", len(instruments))
-	if len(instruments) > 0 {
-		ws.logger.Printf("WebSocket: Sample mapping - UIC %d -> %s",
-			instruments[0].Identifier, instruments[0].Ticker)
-	}
 }
 
 // ensureClientKey fetches and caches ClientKey from broker if not already available

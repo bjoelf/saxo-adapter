@@ -455,16 +455,24 @@ func (sm *SubscriptionManager) HandleSubscriptions(keepCurrentReferenceIds bool,
 		}
 
 		// Update subscription tracking
-		if !keepCurrentReferenceIds && newReferenceId != subscription.ReferenceId {
+		if !keepCurrentReferenceIds && newReferenceId != oldReferenceId {
 			// Reference ID changed - update tracking
 			subscription.ReferenceId = newReferenceId
 			subscription.EndpointPath = endpoint
 
 			// Update subscription map (if refId was the ReferenceId, update key)
-			if refId == subscription.ReferenceId {
+			if refId == oldReferenceId {
 				sm.subscriptions[newReferenceId] = subscription
-				delete(sm.subscriptions, refId)
+				delete(sm.subscriptions, oldReferenceId)
 			}
+
+			// Clean up old subscription's lastMessageTimestamps to prevent accumulation
+			sm.client.lastMessageTimestampsMu.Lock()
+			if timestamp, exists := sm.client.lastMessageTimestamps[oldReferenceId]; exists {
+				sm.client.lastMessageTimestamps[newReferenceId] = timestamp
+				delete(sm.client.lastMessageTimestamps, oldReferenceId)
+			}
+			sm.client.lastMessageTimestampsMu.Unlock()
 		}
 
 		// Update subscription state
@@ -598,30 +606,17 @@ func (sm *SubscriptionManager) HandleSubscriptionReset(targetReferenceIds []stri
 // Also supports direct UIC strings (e.g., "21", "31") for simple examples
 // When UICs are passed directly, creates bidirectional mapping: UIC → "21" (ticker is UIC string)
 func (sm *SubscriptionManager) getUicsForInstruments(instruments []string) []int {
-	sm.client.mappingMu.Lock()
-	defer sm.client.mappingMu.Unlock()
-
 	// Use map to deduplicate UICs (CRITICAL FIX for Saxo API requirement)
 	// Saxo API requires: "The UICs in the list must be unique"
 	uicMap := make(map[int]bool)
 
 	for _, instrument := range instruments {
-		// First, try to parse as direct UIC (numeric string)
+		// Parse as direct UIC (numeric string)
 		if uic, err := strconv.Atoi(instrument); err == nil {
 			uicMap[uic] = true
-
-			// Create reverse mapping: UIC → ticker (ticker is the UIC string itself)
-			// This allows price messages to be converted without predefined mappings
-			sm.client.uicToTicker[uic] = instrument
-			sm.client.tickerToUic[instrument] = uic
-
-			sm.client.logger.Printf("  Using direct UIC: %s -> %d (created mapping)", instrument, uic)
-		} else if uic, exists := sm.client.tickerToUic[instrument]; exists {
-			// Otherwise, look up ticker in mapping
-			uicMap[uic] = true
-			sm.client.logger.Printf("  Mapped ticker: %s -> %d", instrument, uic)
+			sm.client.logger.Printf("  Using UIC: %s -> %d", instrument, uic)
 		} else {
-			sm.client.logger.Printf("Warning: No UIC mapping for ticker %s (RegisterInstruments not called?)", instrument)
+			sm.client.logger.Printf("Warning: Could not parse instrument '%s' as UIC", instrument)
 		}
 	}
 
