@@ -64,11 +64,12 @@ type SaxoToken struct {
 
 // SaxoAccountInfo represents account information
 type SaxoAccountInfo struct {
-	AccountKey                            string `json:"AccountKey"`
-	AccountType                           string `json:"AccountType"`
-	Currency                              string `json:"Currency"`
-	ClientKey                             string `json:"ClientKey"`
-	CanUseCashPositionsAsMarginCollateral bool   `json:"CanUseCashPositionsAsMarginCollateral"`
+	AccountKey                            string    `json:"AccountKey"`
+	AccountType                           string    `json:"AccountType"`
+	Currency                              string    `json:"Currency"`
+	ClientKey                             string    `json:"ClientKey"`
+	CreationDate                          time.Time `json:"CreationDate"`
+	CanUseCashPositionsAsMarginCollateral bool      `json:"CanUseCashPositionsAsMarginCollateral"`
 }
 
 // SaxoBalance represents account balance from /port/v1/balances/me
