@@ -245,16 +245,18 @@ func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument I
 	sbc.logger.Printf("Received %d data points for %s", len(saxoResponse.Data), instrument.Ticker)
 
 	// Debug: Log first data point to see what we're getting
-	if len(saxoResponse.Data) > 0 {
-		first := saxoResponse.Data[0]
-		if strings.ToLower(instrument.AssetType) == "contractfutures" {
-			sbc.logger.Printf("DEBUG %s (Futures): First data point - Time=%s, Open=%.5f, High=%.5f, Low=%.5f, Close=%.5f, Volume=%.0f",
-				instrument.Ticker, first.Time, first.Open, first.High, first.Low, first.Close, first.Volume)
-		} else {
-			sbc.logger.Printf("DEBUG %s (FX): First data point - Time=%s, OpenBid=%.5f, OpenAsk=%.5f, HighBid=%.5f, HighAsk=%.5f",
-				instrument.Ticker, first.Time, first.OpenBid, first.OpenAsk, first.HighBid, first.HighAsk)
-		}
-	} // Convert to standardized format based on asset type
+	/*
+		if len(saxoResponse.Data) > 0 {
+			first := saxoResponse.Data[0]
+			if strings.ToLower(instrument.AssetType) == "contractfutures" {
+				sbc.logger.Printf("DEBUG %s (Futures): First data point - Time=%s, Open=%.5f, High=%.5f, Low=%.5f, Close=%.5f, Volume=%.0f",
+					instrument.Ticker, first.Time, first.Open, first.High, first.Low, first.Close, first.Volume)
+			} else {
+				sbc.logger.Printf("DEBUG %s (FX): First data point - Time=%s, OpenBid=%.5f, OpenAsk=%.5f, HighBid=%.5f, HighAsk=%.5f",
+					instrument.Ticker, first.Time, first.OpenBid, first.OpenAsk, first.HighBid, first.HighAsk)
+			}
+		} // Convert to standardized format based on asset type
+	*/
 	historicalData := make([]HistoricalDataPoint, len(saxoResponse.Data))
 	for i, chartPoint := range saxoResponse.Data {
 		var open, high, low, close float64
