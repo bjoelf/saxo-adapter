@@ -582,10 +582,10 @@ func (sbc *SaxoBrokerClient) GetAccounts(ctx context.Context) (*Accounts, error)
 
 	// Convert to generic Accounts (identical schema)
 	accounts := &Accounts{
-		Data: make([]Account, len(saxoResp.Data)),
+		Data: make([]AccountInfo, len(saxoResp.Data)),
 	}
 	for i := range saxoResp.Data {
-		accounts.Data[i] = Account(saxoResp.Data[i])
+		accounts.Data[i] = AccountInfo(saxoResp.Data[i])
 	}
 
 	return accounts, nil
@@ -894,19 +894,6 @@ func (sbc *SaxoBrokerClient) convertFromSaxoPrice(saxoPrice SaxoPriceResponse, t
 	}
 }
 
-// convertFromSaxoAccount converts Saxo account response to generic format
-// Following legacy portfolio balance patterns from broker/broker_http.go
-func (sbc *SaxoBrokerClient) convertFromSaxoAccount(saxoAccount SaxoAccountInfo) *AccountInfo {
-	return &AccountInfo{
-		AccountKey:  saxoAccount.AccountKey,
-		AccountType: saxoAccount.AccountType,
-		Currency:    saxoAccount.Currency,
-		Balance:     0.0, // Need to fetch balance separately from /port/v1/balances
-		MarginUsed:  0.0, // Will be populated by balance call
-		MarginFree:  0.0, // Will be populated by balance call
-	}
-}
-
 // doRequest executes an HTTP request using OAuth2 auto-refresh client
 // This ensures tokens are automatically refreshed before requests, triggering
 // external refresh notifications for WebSocket re-authorization
@@ -1073,8 +1060,8 @@ func (sbc *SaxoBrokerClient) GetInstrumentDetails(ctx context.Context, uics []in
 
 // GetInstrumentPrices implements BrokerClient.GetInstrumentPrices
 // Gets price information (including open interest) for instrument selection
-func (sbc *SaxoBrokerClient) GetInstrumentPrices(ctx context.Context, uics []int, fieldGroups string) ([]InstrumentPriceInfo, error) {
-	sbc.logger.Printf("GetInstrumentPrices: Fetching prices for %d instruments", len(uics))
+func (sbc *SaxoBrokerClient) GetInstrumentPrices(ctx context.Context, uics []int, fieldGroups string, assetType string) ([]InstrumentPriceInfo, error) {
+	sbc.logger.Printf("GetInstrumentPrices: Fetching prices for %d instruments (AssetType: %s)", len(uics), assetType)
 
 	if !sbc.authClient.IsAuthenticated() {
 		return nil, fmt.Errorf("not authenticated with broker")
@@ -1086,8 +1073,8 @@ func (sbc *SaxoBrokerClient) GetInstrumentPrices(ctx context.Context, uics []int
 		uicsStr += fmt.Sprintf(",%d", uics[i])
 	}
 
-	url := fmt.Sprintf("%s/trade/v1/infoprices/list?Uics=%s&FieldGroups=%s&AssetType=ContractFutures",
-		sbc.baseURL, uicsStr, fieldGroups)
+	url := fmt.Sprintf("%s/trade/v1/infoprices/list?Uics=%s&FieldGroups=%s&AssetType=%s",
+		sbc.baseURL, uicsStr, fieldGroups, assetType)
 
 	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {

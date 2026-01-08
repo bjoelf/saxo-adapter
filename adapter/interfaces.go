@@ -55,7 +55,7 @@ type BrokerClient interface {
 	// Instrument search and metadata (Tier 2 - The Usual Suspects)
 	SearchInstruments(ctx context.Context, params InstrumentSearchParams) ([]Instrument, error)
 	GetInstrumentDetails(ctx context.Context, uics []int) ([]InstrumentDetail, error)
-	GetInstrumentPrices(ctx context.Context, uics []int, fieldGroups string) ([]InstrumentPriceInfo, error)
+	GetInstrumentPrices(ctx context.Context, uics []int, fieldGroups string, assetType string) ([]InstrumentPriceInfo, error)
 
 	// Market data operations (consolidated from MarketDataClient)
 	GetInstrumentPrice(ctx context.Context, instrument Instrument) (*PriceData, error)
@@ -226,23 +226,13 @@ type HistoricalDataPoint struct {
 	Volume float64
 }
 
-// AccountInfo represents broker account information
-type AccountInfo struct {
-	AccountKey  string  `json:"account_key"`
-	AccountType string  `json:"account_type"`
-	Currency    string  `json:"currency"`
-	Balance     float64 `json:"balance"`
-	MarginUsed  float64 `json:"margin_used"`
-	MarginFree  float64 `json:"margin_free"`
-}
-
 // Balance represents generic account balance information
 // Type alias to SaxoBalance - broker-agnostic naming
 type Balance = SaxoBalance
 
-// Account represents a trading account
-// Type alias to SaxoAccountInfo - broker-agnostic naming
-type Account = SaxoAccountInfo
+// AccountInfo represents a trading account with full details
+// Type alias to SaxoAccountInfo - includes CreationDate, AccountKey, Currency, etc.
+type AccountInfo = SaxoAccountInfo
 
 // Accounts represents a collection of trading accounts
 // Type alias to SaxoAccounts - broker-agnostic naming

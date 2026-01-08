@@ -165,13 +165,11 @@ func (sbc *SaxoBrokerClient) GetAccountInfo(ctx context.Context) (*AccountInfo, 
 		return nil, fmt.Errorf("failed to decode account response: %w", err)
 	}
 
-	// Convert to generic format
-	accountInfo := sbc.convertFromSaxoAccount(saxoAccount)
-
 	sbc.logger.Printf("Account info fetched: Currency=%s, Type=%s",
-		accountInfo.Currency, accountInfo.AccountType)
+		saxoAccount.Currency, saxoAccount.AccountType)
 
-	return accountInfo, nil
+	// Return directly - AccountInfo is a type alias to SaxoAccountInfo
+	return &saxoAccount, nil
 }
 
 // GetHistoricalData fetches historical OHLC data from Saxo Bank using enriched instrument data
