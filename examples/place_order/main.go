@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -12,60 +12,66 @@ import (
 
 func main() {
 	// Create a logger
-	logger := log.New(os.Stdout, "[ORDER-EXAMPLE] ", log.LstdFlags)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	logger.Println("=== Saxo Adapter - Place Order Example ===")
-	logger.Println("This example demonstrates broker-agnostic order placement")
-	logger.Println("using generic interfaces (BrokerClient, OrderRequest)")
+	logger.Info("=== Saxo Adapter - Place Order Example ===")
+	logger.Info("This example demonstrates broker-agnostic order placement")
+	logger.Info("using generic interfaces (BrokerClient, OrderRequest)")
 
 	// Step 1: Create auth client
-	logger.Println("Creating authentication client...")
+	logger.Info("Creating authentication client...")
 	var authClient saxo.AuthClient
 	var err error
 	authClient, err = saxo.CreateSaxoAuthClient(logger)
 	if err != nil {
-		logger.Fatalf("Failed to create auth client: %v", err)
+		logger.Error("Failed to create auth client: %v", "error", err)
+		os.Exit(1)
 	}
 
 	// Step 2: Authenticate using generic AuthClient interface
 	ctx := context.Background()
-	logger.Println("Authenticating...")
+	logger.Info("Authenticating...")
 	if err := authClient.Login(ctx); err != nil {
-		logger.Fatalf("Authentication failed: %v", err)
+		logger.Error("Authentication failed: %v", "error", err)
+		os.Exit(1)
 	}
-	logger.Println("✅ Authenticated successfully")
-	logger.Println()
+	logger.Info("✅ Authenticated successfully")
+	logger.Info("")
 
 	// Step 3: Create broker services (inject authClient)
-	logger.Println("Creating broker services...")
+	logger.Info("Creating broker services...")
 
 	// CreateBrokerServices returns BrokerClient interface
 	brokerClient, err := saxo.CreateBrokerServices(authClient, logger)
 	if err != nil {
-		logger.Fatalf("Failed to create broker services: %v", err)
+		logger.Error("Failed to create broker services: %v", "error", err)
+		os.Exit(1)
 	}
-	logger.Println("✅ Broker services created successfully")
-	logger.Println()
+	logger.Info("✅ Broker services created successfully")
+	logger.Info("")
 
 	// Step 4: Get accounts to retrieve AccountKey
 	accounts, err := brokerClient.GetAccounts(ctx)
 	if err != nil {
-		logger.Fatalf("Failed to get accounts: %v", err)
+		logger.Error("Failed to get accounts: %v", "error", err)
+		os.Exit(1)
 	}
 	if len(accounts.Data) == 0 {
-		logger.Fatalf("No accounts found")
+		logger.Error("No accounts found")
+		os.Exit(1)
 	}
 	accountKey := accounts.Data[0].AccountKey
-	logger.Printf("Using account: %s", accountKey)
-	logger.Println()
+	logger.Info("Using account", "account_key", accountKey)
+	logger.Info("")
 
 	// Step 5: Get current balance
 	balance, err := brokerClient.GetBalance(ctx)
 	if err != nil {
-		logger.Fatalf("Failed to get balance: %v", err)
+		logger.Error("Failed to get balance: %v", "error", err)
+		os.Exit(1)
 	}
 	fmt.Printf("💰 Current Balance: %.2f %s\n", balance.TotalValue, balance.Currency)
-	logger.Println()
+	logger.Info("")
 
 	// Step 6: Prepare order using generic Instrument and OrderRequest types
 	// These are broker-agnostic - same code works with any broker!
@@ -82,57 +88,58 @@ func main() {
 		Duration:  "DayOrder",
 	}
 
-	logger.Println("Order Details:")
+	logger.Info("Order Details:")
 	fmt.Printf("  Instrument: %s (ID: %d)\n", order.Instrument.Ticker, order.Instrument.Identifier)
 	fmt.Printf("  Side:       %s\n", order.Side)
 	fmt.Printf("  Size:       %d units\n", order.Size)
 	fmt.Printf("  Type:       %s\n", order.OrderType)
 	fmt.Printf("  Duration:   %s\n", order.Duration)
-	logger.Println()
+	logger.Info("")
 
 	// Step 7: Place order using generic BrokerClient.PlaceOrder()
 	// This method signature is the same for ALL brokers!
-	logger.Println("Placing order...")
+	logger.Info("Placing order...")
 	response, err := brokerClient.PlaceOrder(ctx, order)
 	if err != nil {
-		logger.Fatalf("❌ Order placement failed: %v", err)
+		logger.Error("❌ Order placement failed: %v", "error", err)
+		os.Exit(1)
 	}
 
 	// Generic OrderResponse type
-	logger.Println("✅ Order placed successfully!")
+	logger.Info("✅ Order placed successfully!")
 	fmt.Printf("  Order ID:   %s\n", response.OrderID)
 	fmt.Printf("  Status:     %s\n", response.Status)
-	logger.Println()
+	logger.Info("")
 
 	// Step 8: Wait for order to process
-	logger.Println("Waiting for order to process...")
+	logger.Info("Waiting for order to process...")
 	time.Sleep(2 * time.Second)
 
 	// Step 9: Get open orders using generic BrokerClient.GetOpenOrders()
-	logger.Println("Fetching open orders...")
+	logger.Info("Fetching open orders...")
 	openOrders, err := brokerClient.GetOpenOrders(ctx)
 	if err != nil {
-		logger.Printf("⚠️  Failed to get open orders: %v", err)
+		logger.Warn("Failed to get open orders", "error", err)
 	} else {
-		logger.Printf("📋 Open Orders: %d\n", len(openOrders))
+		fmt.Printf("📋 Open Orders: %d\n", len(openOrders))
 		for i, o := range openOrders {
 			// Generic LiveOrder type
 			fmt.Printf("  %d. %s: %s %.0f @ %.5f (%s)\n",
 				i+1, o.OrderID, o.BuySell, o.Amount, o.Price, o.Status)
 		}
 	}
-	logger.Println()
+	logger.Info("")
 
-	logger.Println("=== Place Order Example Complete ===")
-	logger.Println()
-	logger.Println("Key Takeaways:")
-	logger.Println("  - OrderRequest is a generic, broker-agnostic type")
-	logger.Println("  - BrokerClient.PlaceOrder() interface is the same for all brokers")
-	logger.Println("  - OrderResponse is generic - no Saxo-specific details leaked")
-	logger.Println("  - Same code works with Interactive Brokers, Alpaca, etc.")
-	logger.Println()
-	logger.Println("Next steps:")
-	logger.Println("  - Check your broker account for the executed order")
-	logger.Println("  - Run examples/websocket_prices to monitor real-time prices")
-	logger.Println("  - Try different order types (Limit, Stop, etc.)")
+	logger.Info("=== Place Order Example Complete ===")
+	logger.Info("")
+	logger.Info("Key Takeaways:")
+	logger.Info("  - OrderRequest is a generic, broker-agnostic type")
+	logger.Info("  - BrokerClient.PlaceOrder() interface is the same for all brokers")
+	logger.Info("  - OrderResponse is generic - no Saxo-specific details leaked")
+	logger.Info("  - Same code works with Interactive Brokers, Alpaca, etc.")
+	logger.Info("")
+	logger.Info("Next steps:")
+	logger.Info("  - Check your broker account for the executed order")
+	logger.Info("  - Run examples/websocket_prices to monitor real-time prices")
+	logger.Info("  - Try different order types (Limit, Stop, etc.)")
 }

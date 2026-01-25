@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -12,40 +13,43 @@ import (
 // This example demonstrates how to fetch historical market data using the saxo-adapter
 // It shows authentication, broker client creation, and historical data retrieval
 func main() {
-	logger := log.New(os.Stdout, "HISTORICAL-DATA-EXAMPLE: ", log.LstdFlags)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	logger.Println("=== Saxo Adapter - Historical Data Example ===")
-	logger.Println("This example demonstrates broker-agnostic real-time data streaming")
-	logger.Println("using the generic WebSocketClient interface")
+	logger.Info("=== Saxo Adapter - Historical Data Example ===")
+	logger.Info("This example demonstrates broker-agnostic real-time data streaming")
+	logger.Info("using the generic WebSocketClient interface")
 
 	// Step 1: Create auth client
-	logger.Println("Creating authentication client...")
+	logger.Info("Creating authentication client...")
 	var authClient saxo.AuthClient
 	var err error
 	authClient, err = saxo.CreateSaxoAuthClient(logger)
 	if err != nil {
-		logger.Fatalf("Failed to create auth client: %v", err)
+		logger.Error("Failed to create auth client: %v", "error", err)
+		os.Exit(1)
 	}
 
 	// Step 2: Authenticate using generic AuthClient interface
 	ctx := context.Background()
-	logger.Println("Authenticating...")
+	logger.Info("Authenticating...")
 	if err := authClient.Login(ctx); err != nil {
-		logger.Fatalf("Authentication failed: %v", err)
+		logger.Error("Authentication failed: %v", "error", err)
+		os.Exit(1)
 	}
-	logger.Println("✅ Authenticated successfully")
-	logger.Println()
+	logger.Info("✅ Authenticated successfully")
+	logger.Info("")
 
 	// Step 3: Create broker services (inject authClient)
-	logger.Println("Creating broker services...")
+	logger.Info("Creating broker services...")
 
 	// CreateBrokerServices returns BrokerClient interface
 	brokerClient, err := saxo.CreateBrokerServices(authClient, logger)
 	if err != nil {
-		logger.Fatalf("Failed to create broker services: %v", err)
+		logger.Error("Failed to create broker services: %v", "error", err)
+		os.Exit(1)
 	}
-	logger.Println("✅ Broker services created successfully")
-	logger.Println()
+	logger.Info("✅ Broker services created successfully")
+	logger.Info("")
 
 	// Step 4: Define instrument to fetch (EURUSD as example)
 	instrument := saxo.Instrument{
@@ -55,8 +59,8 @@ func main() {
 		Uic:         21, // UIC for EURUSD
 	}
 
-	logger.Printf("Fetching historical data for %s (%s)...", instrument.Ticker, instrument.Description)
-	logger.Println()
+	logger.Info("Fetching historical data for instrument", "ticker", instrument.Ticker, "description", instrument.Description)
+	logger.Info("")
 
 	// Step 5: Fetch 30 days of historical data
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -65,14 +69,15 @@ func main() {
 	days := 30
 	historicalData, err := brokerClient.GetHistoricalData(ctx, instrument, days)
 	if err != nil {
-		logger.Fatalf("Failed to fetch historical data: %v", err)
+		logger.Error("Failed to fetch historical data: %v", "error", err)
+		os.Exit(1)
 	}
 
 	// Display results
-	logger.Printf("✓ Fetched %d days of historical data", len(historicalData))
-	logger.Println("\nRecent price data:")
-	logger.Println("Date                 | Open      | High      | Low       | Close     ")
-	logger.Println("---------------------|-----------|-----------|-----------|----------")
+	logger.Info("Fetched historical data", "days", len(historicalData))
+	logger.Info("\nRecent price data:")
+	logger.Info("Date                 | Open      | High      | Low       | Close     ")
+	logger.Info("---------------------|-----------|-----------|-----------|----------")
 
 	// Show last 10 days
 	start := len(historicalData) - 10
@@ -82,7 +87,7 @@ func main() {
 
 	for i := start; i < len(historicalData); i++ {
 		data := historicalData[i]
-		logger.Printf("%s | %9.2f | %9.2f | %9.2f | %9.2f",
+		fmt.Printf("%s | %9.2f | %9.2f | %9.2f | %9.2f\n",
 			data.Time.Format("2006-01-02 15:04"),
 			data.Open,
 			data.High,
@@ -111,12 +116,12 @@ func main() {
 		avgVolume := totalVolume / float64(len(historicalData))
 		priceRange := maxPrice - minPrice
 
-		logger.Println("\nStatistics:")
-		logger.Printf("  Period: %d days", len(historicalData))
-		logger.Printf("  Price range: %.2f - %.2f (range: %.2f)", minPrice, maxPrice, priceRange)
-		logger.Printf("  Average daily volume: %.0f", avgVolume)
-		logger.Printf("  Latest close: %.2f", historicalData[len(historicalData)-1].Close)
+		logger.Info("\nStatistics:")
+		fmt.Printf("  Period: %d days\n", len(historicalData))
+		fmt.Printf("  Price range: %.2f - %.2f (range: %.2f)\n", minPrice, maxPrice, priceRange)
+		fmt.Printf("  Average daily volume: %.0f\n", avgVolume)
+		fmt.Printf("  Latest close: %.2f\n", historicalData[len(historicalData)-1].Close)
 	}
 
-	logger.Println("\n✓ Example completed successfully")
+	logger.Info("\n✓ Example completed successfully")
 }

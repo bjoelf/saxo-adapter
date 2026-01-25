@@ -76,7 +76,9 @@ func GetDecimalsFromTickSize(tickSize float64) int {
 // GetInstrumentPrice fetches current market price using enriched instrument data
 // Following legacy broker/broker_http.go patterns for price retrieval
 func (sbc *SaxoBrokerClient) GetInstrumentPrice(ctx context.Context, instrument Instrument) (*PriceData, error) {
-	sbc.logger.Printf("GetInstrumentPrice: Fetching price for %s", instrument.Ticker)
+	sbc.logger.Debug("Fetching instrument price",
+		"function", "GetInstrumentPrice",
+		"ticker", instrument.Ticker)
 
 	// Validate enriched instrument data
 	if instrument.Uic == 0 {
@@ -122,8 +124,11 @@ func (sbc *SaxoBrokerClient) GetInstrumentPrice(ctx context.Context, instrument 
 	// Convert to generic format
 	priceData := sbc.convertFromSaxoPrice(saxoPrice, instrument.Ticker)
 
-	sbc.logger.Printf("Price fetched successfully: %s = %.5f/%.5f",
-		instrument.Ticker, priceData.Bid, priceData.Ask)
+	sbc.logger.Info("Price fetched successfully",
+		"function", "GetInstrumentPrice",
+		"ticker", instrument.Ticker,
+		"bid", priceData.Bid,
+		"ask", priceData.Ask)
 
 	return priceData, nil
 }
@@ -131,7 +136,8 @@ func (sbc *SaxoBrokerClient) GetInstrumentPrice(ctx context.Context, instrument 
 // GetAccountInfo fetches current account information
 // Following legacy portfolio balance patterns
 func (sbc *SaxoBrokerClient) GetAccountInfo(ctx context.Context) (*AccountInfo, error) {
-	sbc.logger.Printf("GetAccountInfo: Fetching account information")
+	sbc.logger.Debug("Fetching account information",
+		"function", "GetAccountInfo")
 
 	// Check authentication
 	if !sbc.authClient.IsAuthenticated() {
@@ -165,8 +171,10 @@ func (sbc *SaxoBrokerClient) GetAccountInfo(ctx context.Context) (*AccountInfo, 
 		return nil, fmt.Errorf("failed to decode account response: %w", err)
 	}
 
-	sbc.logger.Printf("Account info fetched: Currency=%s, Type=%s",
-		saxoAccount.Currency, saxoAccount.AccountType)
+	sbc.logger.Info("Account info fetched",
+		"function", "GetAccountInfo",
+		"currency", saxoAccount.Currency,
+		"account_type", saxoAccount.AccountType)
 
 	// Return directly - AccountInfo is a type alias to SaxoAccountInfo
 	return &saxoAccount, nil
@@ -175,7 +183,10 @@ func (sbc *SaxoBrokerClient) GetAccountInfo(ctx context.Context) (*AccountInfo, 
 // GetHistoricalData fetches historical OHLC data from Saxo Bank using enriched instrument data
 // Following legacy SinglePivotHistory caching pattern: cache for 1 hour per instrument
 func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument Instrument, days int) ([]HistoricalDataPoint, error) {
-	sbc.logger.Printf("GetHistoricalData: Fetching %d days of data for %s", days, instrument.Ticker)
+	sbc.logger.Debug("Fetching historical data",
+		"function", "GetHistoricalData",
+		"ticker", instrument.Ticker,
+		"days", days)
 
 	// Create cache key (identifier + days to ensure cache matches request)
 	cacheKey := fmt.Sprintf("%d_%d", instrument.Uic, days)
@@ -186,14 +197,20 @@ func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument I
 		// Check if cache is still valid (< 1 hour old like legacy system)
 		if time.Since(cached.Timestamp) < sbc.cacheExpiry && len(cached.Data) >= days {
 			sbc.cacheMutex.RUnlock()
-			sbc.logger.Printf("History from cache: %s (age: %v)", instrument.Ticker, time.Since(cached.Timestamp))
+			sbc.logger.Debug("History from cache",
+				"function", "GetHistoricalData",
+				"ticker", instrument.Ticker,
+				"cache_age", time.Since(cached.Timestamp))
 			return cached.Data, nil
 		}
 	}
 	sbc.cacheMutex.RUnlock()
 
 	// Cache miss or expired - fetch fresh data
-	sbc.logger.Printf("History from request: %s (cache miss or expired)", instrument.Ticker)
+	sbc.logger.Debug("History from request",
+		"function", "GetHistoricalData",
+		"ticker", instrument.Ticker,
+		"reason", "cache miss or expired")
 
 	// Validate enriched instrument data
 	if instrument.Uic == 0 {
@@ -214,7 +231,9 @@ func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument I
 	requestURL := fmt.Sprintf("%s/chart/v3/charts?AssetType=%s&FieldGroups=Data&Count=%d&Horizon=1440&Mode=UpTo&Time=%s&Uic=%d",
 		sbc.baseURL, instrument.AssetType, days, tomorrowMidnightRFC3339(), instrument.Uic)
 
-	sbc.logger.Printf("Saxo API Request: %s", requestURL)
+	sbc.logger.Debug("Saxo API request",
+		"function", "GetHistoricalData",
+		"url", requestURL)
 
 	// Create HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "GET", requestURL, nil)
@@ -240,18 +259,34 @@ func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument I
 		return nil, fmt.Errorf("failed to decode chart response: %w", err)
 	}
 
-	sbc.logger.Printf("Received %d data points for %s", len(saxoResponse.Data), instrument.Ticker)
+	sbc.logger.Debug("Received data points",
+		"function", "GetHistoricalData",
+		"ticker", instrument.Ticker,
+		"count", len(saxoResponse.Data))
 
 	// Debug: Log first data point to see what we're getting
 	/*
 		if len(saxoResponse.Data) > 0 {
 			first := saxoResponse.Data[0]
 			if strings.ToLower(instrument.AssetType) == "contractfutures" {
-				sbc.logger.Printf("DEBUG %s (Futures): First data point - Time=%s, Open=%.5f, High=%.5f, Low=%.5f, Close=%.5f, Volume=%.0f",
-					instrument.Ticker, first.Time, first.Open, first.High, first.Low, first.Close, first.Volume)
+				sbc.logger.Debug("First data point (Futures)",
+					"function", "GetHistoricalData",
+					"ticker", instrument.Ticker,
+					"time", first.Time,
+					"open", first.Open,
+					"high", first.High,
+					"low", first.Low,
+					"close", first.Close,
+					"volume", first.Volume)
 			} else {
-				sbc.logger.Printf("DEBUG %s (FX): First data point - Time=%s, OpenBid=%.5f, OpenAsk=%.5f, HighBid=%.5f, HighAsk=%.5f",
-					instrument.Ticker, first.Time, first.OpenBid, first.OpenAsk, first.HighBid, first.HighAsk)
+				sbc.logger.Debug("First data point (FX)",
+					"function", "GetHistoricalData",
+					"ticker", instrument.Ticker,
+					"time", first.Time,
+					"open_bid", first.OpenBid,
+					"open_ask", first.OpenAsk,
+					"high_bid", first.HighBid,
+					"high_ask", first.HighAsk)
 			}
 		} // Convert to standardized format based on asset type
 	*/
@@ -274,7 +309,10 @@ func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument I
 			low = (chartPoint.LowBid + chartPoint.LowAsk) / 2
 			close = (chartPoint.CloseBid + chartPoint.CloseAsk) / 2
 		default:
-			sbc.logger.Printf("Warning: Unknown AssetType %s for %s, using futures format", instrument.AssetType, instrument.Ticker)
+			sbc.logger.Warn("Unknown asset type, using futures format",
+				"function", "GetHistoricalData",
+				"asset_type", instrument.AssetType,
+				"ticker", instrument.Ticker)
 			open = chartPoint.Open
 			high = chartPoint.High
 			low = chartPoint.Low
@@ -287,7 +325,10 @@ func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument I
 		// Parse timestamp
 		date, err := time.Parse(time.RFC3339, chartPoint.Time)
 		if err != nil {
-			sbc.logger.Printf("Warning: Failed to parse time %s: %v", chartPoint.Time, err)
+			sbc.logger.Warn("Failed to parse timestamp",
+				"function", "GetHistoricalData",
+				"time", chartPoint.Time,
+				"error", err)
 			date = time.Now().AddDate(0, 0, -days+i) // Fallback
 		}
 
@@ -310,7 +351,10 @@ func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument I
 	}
 	sbc.cacheMutex.Unlock()
 
-	sbc.logger.Printf("Historical data cached for %s (expires in %v)", instrument.Ticker, sbc.cacheExpiry)
+	sbc.logger.Debug("Historical data cached",
+		"function", "GetHistoricalData",
+		"ticker", instrument.Ticker,
+		"cache_expiry", sbc.cacheExpiry)
 
 	return historicalData, nil
 }

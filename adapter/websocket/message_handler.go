@@ -70,7 +70,9 @@ func (mh *MessageHandler) handleControlMessage(parsed *ParsedMessage) error {
 	case "_resetsubscriptions":
 		return handleResetSubscriptions(parsed.Payload, mh.client)
 	default:
-		mh.client.logger.Printf("Unknown control message: %s", parsed.ReferenceID)
+		mh.client.logger.Warn("Unknown control message",
+			"function", "handleControlMessage",
+			"reference_id", parsed.ReferenceID)
 	}
 	return nil
 }
@@ -95,7 +97,9 @@ func (mh *MessageHandler) handleDataMessage(parsed *ParsedMessage) error {
 		mh.client.handleSessionEvent(parsed.Payload)
 		return nil
 	} else {
-		mh.client.logger.Printf("Unknown data message reference: %s", parsed.ReferenceID)
+		mh.client.logger.Warn("Unknown data message reference",
+			"function", "handleDataMessage",
+			"reference_id", parsed.ReferenceID)
 	}
 
 	return nil
@@ -146,7 +150,9 @@ func (mh *MessageHandler) handlePriceUpdate(payload []byte) error {
 		case mh.client.priceUpdateChan <- priceUpdate:
 			//mh.client.logger.Printf("🔍 SENT TO CHANNEL: UIC=%d", priceUpdate.Uic)
 		default:
-			mh.client.logger.Printf("Price update channel full, dropping update for UIC %d", priceUpdate.Uic)
+			mh.client.logger.Warn("Price update channel full, dropping update",
+				"function", "handlePriceUpdate",
+				"uic", priceUpdate.Uic)
 		}
 	}
 
@@ -155,7 +161,9 @@ func (mh *MessageHandler) handlePriceUpdate(payload []byte) error {
 
 // handleOrderUpdate processes order status messages following legacy order coordination patterns
 func (mh *MessageHandler) handleOrderUpdate(payload []byte) error {
-	mh.client.logger.Printf("Order update received (payload size: %d bytes)", len(payload))
+	mh.client.logger.Debug("Order update received",
+		"function", "handleOrderUpdate",
+		"payload_size", len(payload))
 
 	// Parse JSON payload
 	var orderData map[string]interface{}
@@ -172,9 +180,14 @@ func (mh *MessageHandler) handleOrderUpdate(payload []byte) error {
 	// Send to channel (non-blocking)
 	select {
 	case mh.client.orderUpdateChan <- *orderUpdate:
-		mh.client.logger.Printf("Order update sent: OrderId=%s Status=%s", orderUpdate.OrderId, orderUpdate.Status)
+		mh.client.logger.Debug("Order update sent",
+			"function", "handleOrderUpdate",
+			"order_id", orderUpdate.OrderId,
+			"status", orderUpdate.Status)
 	default:
-		mh.client.logger.Printf("Order update channel full, dropping update for OrderId=%s", orderUpdate.OrderId)
+		mh.client.logger.Warn("Order update channel full, dropping update",
+			"function", "handleOrderUpdate",
+			"order_id", orderUpdate.OrderId)
 	}
 
 	return nil
@@ -214,7 +227,9 @@ func (mh *MessageHandler) parseOrderData(orderData map[string]interface{}) (*sax
 
 // handlePortfolioUpdate processes portfolio balance messages following legacy portfolio coordination patterns
 func (mh *MessageHandler) handlePortfolioUpdate(payload []byte) error {
-	mh.client.logger.Printf("Portfolio update received (payload size: %d bytes)", len(payload))
+	mh.client.logger.Debug("Portfolio update received",
+		"function", "handlePortfolioUpdate",
+		"payload_size", len(payload))
 
 	// Parse JSON payload
 	var portfolioData map[string]interface{}
@@ -231,9 +246,13 @@ func (mh *MessageHandler) handlePortfolioUpdate(payload []byte) error {
 	// Send to channel (non-blocking)
 	select {
 	case mh.client.portfolioUpdateChan <- *portfolioUpdate:
-		mh.client.logger.Printf("Portfolio update sent: Balance=%.2f MarginUsed=%.2f", portfolioUpdate.Balance, portfolioUpdate.MarginUsed)
+		mh.client.logger.Debug("Portfolio update sent",
+			"function", "handlePortfolioUpdate",
+			"balance", portfolioUpdate.Balance,
+			"margin_used", portfolioUpdate.MarginUsed)
 	default:
-		mh.client.logger.Printf("Portfolio update channel full, dropping update")
+		mh.client.logger.Warn("Portfolio update channel full, dropping update",
+			"function", "handlePortfolioUpdate")
 	}
 
 	return nil

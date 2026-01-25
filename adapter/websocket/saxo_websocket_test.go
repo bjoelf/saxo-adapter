@@ -2,7 +2,7 @@ package websocket
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"testing"
@@ -80,7 +80,7 @@ func TestSaxoWebSocketClient_Connect(t *testing.T) {
 	}
 
 	// Create WebSocket client with mock server URL
-	logger := log.New(os.Stdout, "TEST: ", log.LstdFlags)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	client := NewSaxoWebSocketClient(mockAuth, mockServer.GetBaseURL(), mockServer.GetWebSocketURL(), logger)
 
 	// Test connection establishment
@@ -114,7 +114,7 @@ func TestSaxoWebSocketClient_PriceSubscription(t *testing.T) {
 		httpClient:    mockServer.GetHTTPClient(),
 	}
 
-	logger := log.New(os.Stdout, "TEST: ", log.LstdFlags)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	client := NewSaxoWebSocketClient(mockAuth, mockServer.GetBaseURL(), mockServer.GetWebSocketURL(), logger)
 
 	// Connect to mock server
@@ -171,7 +171,7 @@ func TestSaxoWebSocketClient_ReconnectionLogic(t *testing.T) {
 		httpClient:    mockServer.GetHTTPClient(),
 	}
 
-	logger := log.New(os.Stdout, "TEST: ", log.LstdFlags)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	client := NewSaxoWebSocketClient(mockAuth, mockServer.GetBaseURL(), mockServer.GetWebSocketURL(), logger)
 
 	// Connect initially
@@ -227,7 +227,7 @@ func TestSaxoWebSocketClient_OrderUpdates(t *testing.T) {
 		httpClient:    mockServer.GetHTTPClient(),
 	}
 
-	logger := log.New(os.Stdout, "TEST: ", log.LstdFlags)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	client := NewSaxoWebSocketClient(mockAuth, mockServer.GetBaseURL(), mockServer.GetWebSocketURL(), logger)
 
 	// Connect and subscribe to orders
@@ -273,7 +273,7 @@ func BenchmarkMessageProcessing(b *testing.B) {
 		accessToken:   "test_token_123",
 	}
 
-	logger := log.New(os.Stdout, "BENCH: ", log.LstdFlags)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	client := NewSaxoWebSocketClient(mockAuth, mockServer.GetBaseURL(), mockServer.GetWebSocketURL(), logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

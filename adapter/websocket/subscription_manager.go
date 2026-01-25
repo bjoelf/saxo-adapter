@@ -63,22 +63,27 @@ func NewSubscriptionManager(client *SaxoWebSocketClient, baseURL string, getAuth
 // Endpoint: POST /trade/v1/infoprices/subscriptions
 // assetType: "FxSpot", "ContractFutures", "CfdOnFutures", etc.
 func (sm *SubscriptionManager) SubscribeToInstrumentPrices(instruments []string, assetType string) error {
-	sm.client.logger.Println("===============================================")
-	sm.client.logger.Printf("SubscribeToInstrumentPrices: Starting price subscription for %d instruments (AssetType: %s)", len(instruments), assetType)
-	sm.client.logger.Printf("  Instruments: %v", instruments)
-	sm.client.logger.Println("===============================================")
+	sm.client.logger.Info("Starting price subscription",
+		"function", "SubscribeToInstrumentPrices",
+		"count", len(instruments),
+		"asset_type", assetType,
+		"instruments", instruments)
 
 	sm.subscriptionMu.Lock()
 	defer sm.subscriptionMu.Unlock()
 
 	// Get UICs for instruments
-	sm.client.logger.Println("SubscribeToInstrumentPrices: Mapping instruments to UICs...")
+	sm.client.logger.Debug("Mapping instruments to UICs",
+		"function", "SubscribeToInstrumentPrices")
 	uics := sm.getUicsForInstruments(instruments)
-	sm.client.logger.Printf("  Mapped UICs: %v", uics)
+	sm.client.logger.Debug("Mapped UICs",
+		"function", "SubscribeToInstrumentPrices",
+		"uics", uics)
 
 	if len(uics) == 0 {
-		sm.client.logger.Printf("❌ SubscribeToInstrumentPrices: No valid UICs found for instruments: %v", instruments)
-		sm.client.logger.Println("   Hint: Did you call RegisterInstruments() before subscribing?")
+		sm.client.logger.Error("No valid UICs found for instruments",
+			"function", "SubscribeToInstrumentPrices",
+			"instruments", instruments)
 		return fmt.Errorf("no valid UICs found for instruments")
 	}
 
@@ -87,7 +92,9 @@ func (sm *SubscriptionManager) SubscribeToInstrumentPrices(instruments []string,
 	if contextId == "" {
 		return fmt.Errorf("WebSocket not connected - no context ID")
 	}
-	sm.client.logger.Printf("  Using WebSocket Context ID: %s", contextId)
+	sm.client.logger.Debug("Using WebSocket Context ID",
+		"function", "SubscribeToInstrumentPrices",
+		"context_id", contextId)
 
 	// Build Saxo streaming subscription following API documentation
 	// Reference: https://www.developer.saxo/openapi/learn/streaming
@@ -113,15 +120,19 @@ func (sm *SubscriptionManager) SubscribeToInstrumentPrices(instruments []string,
 		},
 	}
 
-	sm.client.logger.Printf("SubscribeToInstrumentPrices: Sending subscription via HTTP POST...")
-	sm.client.logger.Printf("  Subscription request: %+v", subscriptionReq)
+	sm.client.logger.Debug("Sending subscription via HTTP POST",
+		"function", "SubscribeToInstrumentPrices",
+		"subscription_request", subscriptionReq)
 
 	// Send subscription request via HTTP POST (NOT WebSocket!)
 	if err := sm.sendSubscriptionRequest(EndpointPrices, subscriptionReq); err != nil {
-		sm.client.logger.Printf("❌ SubscribeToInstrumentPrices: Failed to send HTTP POST: %v", err)
+		sm.client.logger.Error("Failed to send HTTP POST",
+			"function", "SubscribeToInstrumentPrices",
+			"error", err)
 		return fmt.Errorf("failed to send price subscription: %w", err)
 	}
-	sm.client.logger.Println("✅ SubscribeToInstrumentPrices: HTTP POST successful, subscription created")
+	sm.client.logger.Debug("HTTP POST successful, subscription created",
+		"function", "SubscribeToInstrumentPrices")
 
 	// Track subscription state for reconnection logic
 	subscription := &Subscription{
@@ -138,14 +149,13 @@ func (sm *SubscriptionManager) SubscribeToInstrumentPrices(instruments []string,
 	mapKey := "price_feed_" + assetType
 	sm.subscriptions[mapKey] = subscription
 
-	sm.client.logger.Println("===============================================")
-	sm.client.logger.Printf("✅ SubscribeToInstrumentPrices: Successfully subscribed to prices")
-	sm.client.logger.Printf("✅ Subscription key: %s", mapKey)
-	sm.client.logger.Printf("✅ ReferenceId: %s", referenceId)
-	sm.client.logger.Printf("   Instruments: %v", instruments)
-	sm.client.logger.Printf("   UICs: %v", uics)
-	sm.client.logger.Printf("   Context ID: %s", contextId)
-	sm.client.logger.Println("===============================================")
+	sm.client.logger.Info("Successfully subscribed to prices",
+		"function", "SubscribeToInstrumentPrices",
+		"subscription_key", mapKey,
+		"reference_id", referenceId,
+		"instruments", instruments,
+		"uics", uics,
+		"context_id", contextId)
 
 	return nil
 }
@@ -190,7 +200,10 @@ func (sm *SubscriptionManager) SubscribeToOrderUpdates(clientKey string) error {
 	}
 
 	sm.subscriptions["order_updates"] = subscription
-	sm.client.logger.Println("✅ Subscribed to order status updates via HTTP POST")
+	sm.client.logger.Info("Subscribed to order status updates via HTTP POST",
+		"function", "SubscribeToOrderUpdates",
+		"reference_id", referenceId,
+		"client_key", clientKey)
 
 	return nil
 }
@@ -235,7 +248,10 @@ func (sm *SubscriptionManager) SubscribeToPortfolioUpdates(clientKey string) err
 	}
 
 	sm.subscriptions["portfolio_balance"] = subscription
-	sm.client.logger.Println("✅ Subscribed to portfolio balance updates via HTTP POST")
+	sm.client.logger.Info("Subscribed to portfolio balance updates via HTTP POST",
+		"function", "SubscribeToPortfolioUpdates",
+		"reference_id", referenceId,
+		"client_key", clientKey)
 
 	return nil
 }
@@ -265,11 +281,14 @@ func (sm *SubscriptionManager) SubscribeToSessionEvents() error {
 		"Format":      "application/json",
 	}
 
-	sm.client.logger.Printf("SubscribeToSessionEvents: Sending subscription via HTTP POST...")
-	sm.client.logger.Printf("  Subscription request: %+v", subscriptionReq)
+	sm.client.logger.Debug("Sending subscription via HTTP POST",
+		"function", "SubscribeToSessionEvents",
+		"subscription_request", subscriptionReq)
 
 	if err := sm.sendSubscriptionRequest(EndpointSessionEvents, subscriptionReq); err != nil {
-		sm.client.logger.Printf("❌ SubscribeToSessionEvents: Failed to send HTTP POST: %v", err)
+		sm.client.logger.Error("Failed to send HTTP POST",
+			"function", "SubscribeToSessionEvents",
+			"error", err)
 		return fmt.Errorf("failed to send session events subscription: %w", err)
 	}
 
@@ -283,7 +302,9 @@ func (sm *SubscriptionManager) SubscribeToSessionEvents() error {
 	}
 
 	sm.subscriptions["session_events"] = subscription
-	sm.client.logger.Println("✅ Subscribed to session events via HTTP POST")
+	sm.client.logger.Info("Subscribed to session events via HTTP POST",
+		"function", "SubscribeToSessionEvents",
+		"reference_id", referenceId)
 
 	return nil
 }
@@ -304,8 +325,10 @@ func (sm *SubscriptionManager) sendSubscriptionRequest(endpoint string, subscrip
 		return fmt.Errorf("failed to marshal subscription request: %w", err)
 	}
 
-	sm.client.logger.Printf("sendSubscriptionRequest: POST %s", endpoint)
-	sm.client.logger.Printf("  Body: %s", string(reqBody))
+	sm.client.logger.Debug("Sending HTTP POST subscription request",
+		"function", "sendSubscriptionRequest",
+		"endpoint", endpoint,
+		"body", string(reqBody))
 
 	// Create HTTP POST request
 	url := sm.baseURL + endpoint
@@ -335,18 +358,25 @@ func (sm *SubscriptionManager) sendSubscriptionRequest(endpoint string, subscrip
 	// Check response status - Saxo returns 201 Created on successful subscription
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		sm.client.logger.Printf("❌ Subscription failed: Status=%d, Body=%s", resp.StatusCode, string(bodyBytes))
+		sm.client.logger.Error("Subscription failed",
+			"function", "sendSubscriptionRequest",
+			"status", resp.StatusCode,
+			"body", string(bodyBytes))
 		return fmt.Errorf("subscription request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	// Log success
-	sm.client.logger.Printf("✅ Subscription created successfully: Status=%d", resp.StatusCode)
+	sm.client.logger.Debug("Subscription created successfully",
+		"function", "sendSubscriptionRequest",
+		"status", resp.StatusCode)
 
 	// Note: The Location header contains the subscription resource URL for deletion
 	// We should store this for later deletion, but for now we just log it
 	location := resp.Header.Get("Location")
 	if location != "" {
-		sm.client.logger.Printf("   Location: %s", location)
+		sm.client.logger.Debug("Subscription location",
+			"function", "sendSubscriptionRequest",
+			"location", location)
 	}
 
 	return nil
@@ -388,7 +418,9 @@ func (sm *SubscriptionManager) HandleSubscriptions(targetReferenceIds []string) 
 	if len(targetReferenceIds) == 0 {
 		// Resubscribe all subscriptions
 		subsToProcess = sm.subscriptions
-		sm.client.logger.Printf("ResubscribeAll: Resubscribing to ALL %d subscriptions via HTTP POST", len(sm.subscriptions))
+		sm.client.logger.Info("Resubscribing to ALL subscriptions via HTTP POST",
+			"function", "HandleSubscriptions",
+			"count", len(sm.subscriptions))
 	} else {
 		// Resubscribe only specific subscriptions by matching ReferenceId field
 		// CRITICAL: targetReferenceIds contains actual Saxo reference IDs (e.g., "FxSpotprices-20251220-145408")
@@ -397,7 +429,10 @@ func (sm *SubscriptionManager) HandleSubscriptions(targetReferenceIds []string) 
 			for _, targetRefId := range targetReferenceIds {
 				if sub.ReferenceId == targetRefId {
 					subsToProcess[mapKey] = sub
-					sm.client.logger.Printf("  Matched ReferenceId '%s' to subscription type '%s'", targetRefId, mapKey)
+					sm.client.logger.Debug("Matched ReferenceId to subscription type",
+						"function", "HandleSubscriptions",
+						"reference_id", targetRefId,
+						"subscription_key", mapKey)
 					break
 				}
 			}
@@ -413,15 +448,20 @@ func (sm *SubscriptionManager) HandleSubscriptions(targetReferenceIds []string) 
 				}
 			}
 			if !found {
-				sm.client.logger.Printf("⚠️ ResubscribeAll: ReferenceId '%s' not found in active subscriptions", targetRefId)
+				sm.client.logger.Warn("ReferenceId not found in active subscriptions",
+					"function", "HandleSubscriptions",
+					"reference_id", targetRefId)
 			}
 		}
 
-		sm.client.logger.Printf("ResubscribeAll: Resubscribing to %d specific subscriptions via HTTP POST", len(subsToProcess))
+		sm.client.logger.Info("Resubscribing to specific subscriptions via HTTP POST",
+			"function", "HandleSubscriptions",
+			"count", len(subsToProcess))
 	}
 
 	if len(subsToProcess) == 0 {
-		sm.client.logger.Println("ResubscribeAll: No subscriptions to resubscribe")
+		sm.client.logger.Debug("No subscriptions to resubscribe",
+			"function", "HandleSubscriptions")
 		return nil
 	}
 
@@ -439,13 +479,18 @@ func (sm *SubscriptionManager) HandleSubscriptions(targetReferenceIds []string) 
 			"Format":             "application/json",
 			"Arguments":          subscription.Arguments,
 		}
-		sm.client.logger.Printf("  Resubscribing '%s' (old: %s -> new: %s)",
-			refId, oldReferenceId, newReferenceId)
+		sm.client.logger.Debug("Resubscribing with new reference ID",
+			"function", "HandleSubscriptions",
+			"subscription_key", refId,
+			"old_reference_id", oldReferenceId,
+			"new_reference_id", newReferenceId)
 
 		// Use stored endpoint path (single source of truth)
 		endpoint := subscription.EndpointPath
 		if endpoint == "" {
-			sm.client.logger.Printf("❌ Subscription '%s' has no endpoint path stored, skipping", refId)
+			sm.client.logger.Error("Subscription has no endpoint path stored, skipping",
+				"function", "HandleSubscriptions",
+				"subscription_key", refId)
 			continue
 		}
 
@@ -474,7 +519,9 @@ func (sm *SubscriptionManager) HandleSubscriptions(targetReferenceIds []string) 
 		}
 	}
 
-	sm.client.logger.Printf("✅ ResubscribeAll: Successfully resubscribed %d subscriptions", len(subsToProcess))
+	sm.client.logger.Info("Successfully resubscribed subscriptions",
+		"function", "HandleSubscriptions",
+		"count", len(subsToProcess))
 	return nil
 }
 
@@ -489,7 +536,8 @@ func (sm *SubscriptionManager) HandleSubscriptionReset(targetReferenceIds []stri
 	if sm.client.reconnectInProgress {
 		sm.client.reconnectMu.Unlock()
 		sm.subscriptionMu.Unlock()
-		sm.client.logger.Println("HandleSubscriptionReset: Skipping reset (reconnection in progress)")
+		sm.client.logger.Debug("Skipping reset (reconnection in progress)",
+			"function", "HandleSubscriptionReset")
 		return nil
 	}
 	sm.client.reconnectMu.Unlock()
@@ -497,7 +545,8 @@ func (sm *SubscriptionManager) HandleSubscriptionReset(targetReferenceIds []stri
 	// CRITICAL: Check if reset already in progress
 	if sm.subscriptionUpdateInProgress {
 		sm.subscriptionMu.Unlock()
-		sm.client.logger.Println("HandleSubscriptionReset: Reset already in progress, skipping")
+		sm.client.logger.Debug("Reset already in progress, skipping",
+			"function", "HandleSubscriptionReset")
 		return nil
 	}
 
@@ -505,7 +554,8 @@ func (sm *SubscriptionManager) HandleSubscriptionReset(targetReferenceIds []stri
 	// Increased from 10s to 30s following legacy pattern after debugging
 	if len(targetReferenceIds) == 0 && time.Since(sm.lastSubscriptionResetTime) < 30*time.Second {
 		sm.subscriptionMu.Unlock()
-		sm.client.logger.Println("HandleSubscriptionReset: Recent full reset detected, skipping to avoid storm")
+		sm.client.logger.Debug("Recent full reset detected, skipping to avoid storm",
+			"function", "HandleSubscriptionReset")
 		return nil
 	}
 
@@ -525,23 +575,30 @@ func (sm *SubscriptionManager) HandleSubscriptionReset(targetReferenceIds []stri
 
 		if len(timedOutSubs) == 0 {
 			// Full reset requested
-			sm.client.logger.Println("HandleSubscriptionReset: Full reset triggered")
+			sm.client.logger.Info("Full reset triggered",
+				"function", "HandleSubscriptionReset")
 
 			// Full reset should trigger reconnection instead
 			select {
 			case sm.client.reconnectionTrigger <- fmt.Errorf("subscription reset requested"):
-				sm.client.logger.Println("HandleSubscriptionReset: Reconnection request queued")
+				sm.client.logger.Debug("Reconnection request queued",
+					"function", "HandleSubscriptionReset")
 			default:
-				sm.client.logger.Println("HandleSubscriptionReset: Reconnection already queued")
+				sm.client.logger.Debug("Reconnection already queued",
+					"function", "HandleSubscriptionReset")
 			}
 		} else {
 			// Partial reset - resubscribe specific subscriptions with new IDs
-			sm.client.logger.Printf("HandleSubscriptionReset: Resetting specific subscriptions: %v", timedOutSubs)
+			sm.client.logger.Info("Resetting specific subscriptions",
+				"function", "HandleSubscriptionReset",
+				"subscriptions", timedOutSubs)
 
 			// Use ResubscribeAll with specific targets and generate new IDs
 			// Following Saxo API documentation: subscriptions via HTTP POST, not WebSocket writes
 			if err := sm.HandleSubscriptions(timedOutSubs); err != nil {
-				sm.client.logger.Printf("HandleSubscriptionReset: ResubscribeAll failed: %v", err)
+				sm.client.logger.Error("ResubscribeAll failed",
+					"function", "HandleSubscriptionReset",
+					"error", err)
 			}
 		}
 	}(targetReferenceIds)
@@ -562,9 +619,14 @@ func (sm *SubscriptionManager) getUicsForInstruments(instruments []string) []int
 		// Parse as direct UIC (numeric string)
 		if uic, err := strconv.Atoi(instrument); err == nil {
 			uicMap[uic] = true
-			sm.client.logger.Printf("  Using UIC: %s -> %d", instrument, uic)
+			sm.client.logger.Debug("Using direct UIC",
+				"function", "getUicsForInstruments",
+				"instrument", instrument,
+				"uic", uic)
 		} else {
-			sm.client.logger.Printf("Warning: Could not parse instrument '%s' as UIC", instrument)
+			sm.client.logger.Warn("Could not parse instrument as UIC",
+				"function", "getUicsForInstruments",
+				"instrument", instrument)
 		}
 	}
 
@@ -575,7 +637,11 @@ func (sm *SubscriptionManager) getUicsForInstruments(instruments []string) []int
 	}
 
 	if len(uics) > 0 {
-		sm.client.logger.Printf("SubscriptionManager: Mapped %d instruments to %d unique UICs: %v", len(instruments), len(uics), uics)
+		sm.client.logger.Debug("Mapped instruments to unique UICs",
+			"function", "getUicsForInstruments",
+			"instruments_count", len(instruments),
+			"uics_count", len(uics),
+			"uics", uics)
 	}
 
 	return uics

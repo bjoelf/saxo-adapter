@@ -3,7 +3,7 @@ package saxo
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -146,7 +146,7 @@ func TestSaxoBrokerClient_PlaceOrder(t *testing.T) {
 	}
 
 	// Create broker client
-	logger := log.New(os.Stdout, "TEST: ", log.LstdFlags)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	client := NewSaxoBrokerClient(authClient, mockServer.GetBaseURL(), logger)
 
 	// Test data - using enriched instrument (following new interface)
@@ -216,7 +216,7 @@ func TestSaxoBrokerClient_DeleteOrder(t *testing.T) {
 	}
 
 	// Create broker client
-	logger := log.New(os.Stdout, "TEST: ", log.LstdFlags)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	client := NewSaxoBrokerClient(authClient, mockServer.GetBaseURL(), logger)
 
 	// Configure mock response for specific order ID
@@ -260,7 +260,7 @@ func TestSaxoBrokerClient_AuthenticationRequired(t *testing.T) {
 	}
 
 	// Create broker client
-	logger := log.New(os.Stdout, "TEST: ", log.LstdFlags)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	client := NewSaxoBrokerClient(authClient, mockServer.GetBaseURL(), logger)
 
 	// Test order placement without authentication should fail
@@ -302,7 +302,7 @@ func TestSaxoBrokerClient_ErrorHandling(t *testing.T) {
 	}
 
 	// Create broker client
-	logger := log.New(os.Stdout, "TEST: ", log.LstdFlags)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	client := NewSaxoBrokerClient(authClient, mockServer.GetBaseURL(), logger)
 
 	// Test order placement with error response
@@ -356,7 +356,7 @@ func TestSaxoBrokerClient_TokenError(t *testing.T) {
 	}
 
 	// Create broker client
-	logger := log.New(os.Stdout, "TEST: ", log.LstdFlags)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	client := NewSaxoBrokerClient(authClient, mockServer.GetBaseURL(), logger)
 
 	// Test order placement with token error
@@ -398,7 +398,7 @@ func TestSaxoBrokerClient_EnrichmentValidation(t *testing.T) {
 	}
 
 	// Create broker client
-	logger := log.New(os.Stdout, "TEST: ", log.LstdFlags)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	client := NewSaxoBrokerClient(authClient, mockServer.GetBaseURL(), logger)
 
 	// Test with un-enriched instrument (missing UIC)
