@@ -36,50 +36,65 @@ func NewConnectionManager(client *SaxoWebSocketClient) *ConnectionManager {
 
 // EstablishConnection creates WebSocket connection following 22:00 UTC lifecycle pattern
 func (cm *ConnectionManager) EstablishConnection(ctx context.Context) error {
-	cm.client.logger.Println("===============================================")
-	cm.client.logger.Println("EstablishConnection: Starting WebSocket connection")
-	cm.client.logger.Println("===============================================")
+	cm.client.logger.Info("Starting WebSocket connection",
+		"function", "EstablishConnection")
 
 	if cm.connected {
-		cm.client.logger.Println("EstablishConnection: Connection already established")
+		cm.client.logger.Info("Connection already established",
+			"function", "EstablishConnection")
 		return fmt.Errorf("connection already established")
 	}
 
 	// Verify authentication before connection - critical for Saxo WebSocket
-	cm.client.logger.Println("EstablishConnection: Checking authentication...")
+	cm.client.logger.Debug("Checking authentication",
+		"function", "EstablishConnection")
 	if !cm.client.authClient.IsAuthenticated() {
-		cm.client.logger.Println("❌ EstablishConnection: Authentication FAILED - no valid token")
+		cm.client.logger.Error("Authentication failed",
+			"function", "EstablishConnection",
+			"reason", "no valid token")
 		return fmt.Errorf("authentication required for WebSocket connection")
 	}
-	cm.client.logger.Println("✅ EstablishConnection: Authentication verified")
+	cm.client.logger.Info("Authentication verified",
+		"function", "EstablishConnection")
 
-	cm.client.logger.Println("EstablishConnection: Getting access token...")
+	cm.client.logger.Debug("Getting access token",
+		"function", "EstablishConnection")
 	accessToken, err := cm.client.authClient.GetAccessToken()
 	if err != nil {
-		cm.client.logger.Printf("❌ EstablishConnection: Failed to get access token: %v", err)
+		cm.client.logger.Error("Failed to get access token",
+			"function", "EstablishConnection",
+			"error", err)
 		return fmt.Errorf("failed to get access token: %w", err)
 	}
-	cm.client.logger.Printf("✅ EstablishConnection: Access token obtained (length=%d)", len(accessToken))
+	cm.client.logger.Debug("Access token obtained",
+		"function", "EstablishConnection",
+		"token_length", len(accessToken))
 
 	// Generate context ID for this WebSocket connection session
 	// Following legacy generateHumanReadableID pattern: "websocket-{timestamp}"
 	contextId := generateHumanReadableID("websocket")
-	cm.client.logger.Printf("EstablishConnection: Generated context ID: %s", contextId)
+	cm.client.logger.Debug("Generated context ID",
+		"function", "EstablishConnection",
+		"context_id", contextId)
 
 	// Build WebSocket URL following legacy connectWebSocket pattern
 	wsURL := cm.buildWebSocketURL(contextId, 0) // 0 = no lastMessage (fresh connection)
-	cm.client.logger.Printf("EstablishConnection: WebSocket URL: %s", wsURL)
+	cm.client.logger.Debug("WebSocket URL prepared",
+		"function", "EstablishConnection",
+		"url", wsURL)
 
 	// Configure connection headers with OAuth2 token
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+accessToken)
 	headers.Set("User-Agent", "PivotWeb/2.0")
 
-	cm.client.logger.Println("EstablishConnection: Configuring headers...")
-	cm.client.logger.Printf("  - Authorization: Bearer <token length=%d>", len(accessToken))
-	cm.client.logger.Println("  - User-Agent: PivotWeb/2.0")
+	cm.client.logger.Debug("Configuring headers",
+		"function", "EstablishConnection",
+		"token_length", len(accessToken))
 
-	cm.client.logger.Printf("EstablishConnection: Establishing WebSocket connection to: %s", wsURL)
+	cm.client.logger.Info("Establishing WebSocket connection",
+		"function", "EstablishConnection",
+		"url", wsURL)
 
 	// Get HTTP client to extract TLS config (for tests with self-signed certs)
 	httpClient, err := cm.client.authClient.GetHTTPClient(ctx)
@@ -101,18 +116,24 @@ func (cm *ConnectionManager) EstablishConnection(ctx context.Context) error {
 		dialer.TLSClientConfig = transport.TLSClientConfig
 	}
 
-	cm.client.logger.Println("EstablishConnection: Dialing WebSocket...")
+	cm.client.logger.Debug("Dialing WebSocket",
+		"function", "EstablishConnection")
 	conn, resp, err := dialer.DialContext(ctx, wsURL, headers)
 	if err != nil {
 		if resp != nil {
-			cm.client.logger.Printf("❌ EstablishConnection: WebSocket handshake FAILED with status: %d", resp.StatusCode)
-			cm.client.logger.Printf("❌ EstablishConnection: Response headers: %v", resp.Header)
+			cm.client.logger.Error("WebSocket handshake failed",
+				"function", "EstablishConnection",
+				"status_code", resp.StatusCode,
+				"headers", resp.Header)
 		} else {
-			cm.client.logger.Printf("❌ EstablishConnection: Dial failed (no response): %v", err)
+			cm.client.logger.Error("WebSocket dial failed",
+				"function", "EstablishConnection",
+				"error", err)
 		}
 		return fmt.Errorf("failed to establish WebSocket connection: %w", err)
 	}
-	cm.client.logger.Println("✅ EstablishConnection: WebSocket dial successful")
+	cm.client.logger.Info("WebSocket dial successful",
+		"function", "EstablishConnection")
 
 	// Configure connection settings following legacy patterns
 	conn.SetReadDeadline(time.Time{})  // No read timeout
@@ -120,7 +141,10 @@ func (cm *ConnectionManager) EstablishConnection(ctx context.Context) error {
 
 	// Set close handler for graceful shutdown
 	conn.SetCloseHandler(func(code int, text string) error {
-		cm.client.logger.Printf("WebSocket close received: code=%d, text=%s", code, text)
+		cm.client.logger.Info("WebSocket close received",
+			"function", "SetCloseHandler",
+			"code", code,
+			"text", text)
 		cm.handleConnectionClosed()
 		return nil
 	})
@@ -132,10 +156,11 @@ func (cm *ConnectionManager) EstablishConnection(ctx context.Context) error {
 	cm.connected = true
 	cm.reconnectAttempts = 0
 
-	cm.client.logger.Println("✅ EstablishConnection: WebSocket connection established successfully")
-	cm.client.logger.Printf("   - Context ID: %s", cm.client.contextID)
-	cm.client.logger.Printf("   - Local address: %v", conn.LocalAddr())
-	cm.client.logger.Printf("   - Remote address: %v", conn.RemoteAddr())
+	cm.client.logger.Info("WebSocket connection established successfully",
+		"function", "EstablishConnection",
+		"context_id", cm.client.contextID,
+		"local_addr", conn.LocalAddr().String(),
+		"remote_addr", conn.RemoteAddr().String())
 
 	// NEW: Start separated reader/processor/reconnection goroutines
 	// Following legacy broker_websocket.go breakthrough pattern - CRITICAL FIX
@@ -143,17 +168,21 @@ func (cm *ConnectionManager) EstablishConnection(ctx context.Context) error {
 	// CRITICAL: Create NEW context right before starting goroutines
 	// Following legacy startWebSocket pattern (broker_websocket.go:167)
 	// This ensures goroutines use a fresh, non-canceled context
-	cm.client.logger.Println("EstablishConnection: Creating fresh context for goroutines")
+	cm.client.logger.Debug("Creating fresh context for goroutines",
+		"function", "EstablishConnection")
 	cm.client.ctx, cm.client.cancel = context.WithCancel(context.Background())
 
-	cm.client.logger.Println("EstablishConnection: Starting goroutines...")
+	cm.client.logger.Info("Starting goroutines",
+		"function", "EstablishConnection")
 
 	// Start reader goroutine (ONLY reads from WebSocket)
-	cm.client.logger.Println("  - Starting reader goroutine")
+	cm.client.logger.Debug("Starting reader goroutine",
+		"function", "EstablishConnection")
 	go cm.client.readMessages()
 
 	// Start processor goroutine (handles messages and errors)
-	cm.client.logger.Println("  - Starting processor goroutine")
+	cm.client.logger.Debug("Starting processor goroutine",
+		"function", "EstablishConnection")
 	go cm.client.processMessages()
 
 	// CRITICAL: Check if reconnection handler goroutine is already running (singleton pattern)
@@ -161,38 +190,46 @@ func (cm *ConnectionManager) EstablishConnection(ctx context.Context) error {
 	cm.client.reconnectionHandlerMu.Lock()
 	if cm.client.reconnectionHandlerRunning {
 		cm.client.reconnectionHandlerMu.Unlock()
-		cm.client.logger.Println("  - Reconnection handler already running, skipping start")
+		cm.client.logger.Debug("Reconnection handler already running",
+			"function", "EstablishConnection")
 	} else {
 		cm.client.reconnectionHandlerMu.Unlock()
-		cm.client.logger.Println("  - Starting reconnection handler goroutine")
+		cm.client.logger.Debug("Starting reconnection handler goroutine",
+			"function", "EstablishConnection")
 		go cm.client.handleReconnectionRequests()
 	}
 
 	// Start subscription monitoring (timeout detection)
-	cm.client.logger.Println("  - Starting subscription monitoring goroutine")
+	cm.client.logger.Debug("Starting subscription monitoring goroutine",
+		"function", "EstablishConnection")
 	go cm.startSubscriptionMonitoring()
 
 	// Start token refresh timer - CRITICAL for keeping WebSocket alive
 	// Following legacy broker_websocket.go pattern (line 165)
-	cm.client.logger.Println("  - Starting token refresh timer")
+	cm.client.logger.Debug("Starting token refresh timer",
+		"function", "EstablishConnection")
 	timeleft := cm.client.startTokenRefreshTimer()
-	cm.client.logger.Printf("    Token expires in %s, refresh scheduled", timeleft)
+	cm.client.logger.Debug("Token refresh scheduled",
+		"function", "EstablishConnection",
+		"expires_in", timeleft)
 
 	// If token has negative timeleft, then the token has expired
 	if timeleft < 0 {
-		cm.client.logger.Println("❌ EstablishConnection: Token has expired, refresh failed")
+		cm.client.logger.Error("Token has expired",
+			"function", "EstablishConnection")
 		return fmt.Errorf("token has expired, refresh failed")
 	}
 
-	cm.client.logger.Println("===============================================")
-	cm.client.logger.Println("✅ EstablishConnection: All goroutines started successfully")
-	cm.client.logger.Println("===============================================")
+	cm.client.logger.Info("All goroutines started successfully",
+		"function", "EstablishConnection")
 	return nil
 }
 
 // HandleConnectionError processes connection failures and triggers reconnection
 func (cm *ConnectionManager) HandleConnectionError(err error) {
-	cm.client.logger.Printf("WebSocket connection error: %v", err)
+	cm.client.logger.Error("WebSocket connection error",
+		"function", "HandleConnectionError",
+		"error", err)
 
 	cm.handleConnectionClosed()
 
@@ -217,13 +254,18 @@ func (cm *ConnectionManager) reconnectWithBackoff() {
 			delay = cm.maxReconnectDelay
 		}
 
-		cm.client.logger.Printf("Reconnection attempt %d/%d in %v",
-			cm.reconnectAttempts, cm.maxReconnectAttempts, delay)
+		cm.client.logger.Info("Reconnection attempt",
+			"function", "reconnectWithBackoff",
+			"attempt", cm.reconnectAttempts,
+			"max_attempts", cm.maxReconnectAttempts,
+			"delay", delay)
 
 		// Wait before reconnection attempt
 		select {
 		case <-cm.client.ctx.Done():
-			cm.client.logger.Println("Reconnection cancelled due to context cancellation")
+			cm.client.logger.Info("Reconnection cancelled",
+				"function", "reconnectWithBackoff",
+				"reason", "context cancellation")
 			return
 		case <-time.After(delay):
 			// Continue with reconnection attempt
@@ -231,22 +273,30 @@ func (cm *ConnectionManager) reconnectWithBackoff() {
 
 		// Attempt to reestablish connection
 		if err := cm.EstablishConnection(cm.client.ctx); err != nil {
-			cm.client.logger.Printf("Reconnection attempt %d failed: %v", cm.reconnectAttempts, err)
+			cm.client.logger.Warn("Reconnection attempt failed",
+				"function", "reconnectWithBackoff",
+				"attempt", cm.reconnectAttempts,
+				"error", err)
 			continue
 		}
 
 		// Resubscribe to all previous subscriptions with new reference IDs
 		if err := cm.client.subscriptionManager.HandleSubscriptions(nil); err != nil {
-			cm.client.logger.Printf("Resubscription failed after reconnection: %v", err)
+			cm.client.logger.Warn("Resubscription failed after reconnection",
+				"function", "reconnectWithBackoff",
+				"error", err)
 			cm.handleConnectionClosed()
 			continue
 		}
 
-		cm.client.logger.Println("WebSocket reconnection successful with subscription restoration")
+		cm.client.logger.Info("WebSocket reconnection successful",
+			"function", "reconnectWithBackoff")
 		return
 	}
 
-	cm.client.logger.Printf("Max reconnection attempts reached (%d), giving up", cm.maxReconnectAttempts)
+	cm.client.logger.Error("Max reconnection attempts reached",
+		"function", "reconnectWithBackoff",
+		"max_attempts", cm.maxReconnectAttempts)
 }
 
 // startSubscriptionMonitoring monitors subscription health following legacy patterns
@@ -280,18 +330,24 @@ func (cm *ConnectionManager) startSubscriptionMonitoring() {
 
 			// If all subscriptions timed out, trigger full reconnect
 			if len(timedOut) > 0 && len(timedOut) == totalSubscriptions {
-				cm.client.logger.Println("startSubscriptionMonitoring: All subscriptions timed out, triggering reconnect")
+				cm.client.logger.Warn("All subscriptions timed out, triggering reconnect",
+					"function", "startSubscriptionMonitoring",
+					"timed_out_count", len(timedOut))
 				select {
 				case cm.client.reconnectionTrigger <- fmt.Errorf("all subscriptions timed out"):
-					cm.client.logger.Println("startSubscriptionMonitoring: Reconnection request queued")
+					cm.client.logger.Debug("Reconnection request queued",
+						"function", "startSubscriptionMonitoring")
 				default:
-					cm.client.logger.Println("startSubscriptionMonitoring: Reconnection already queued")
+					cm.client.logger.Debug("Reconnection already queued",
+						"function", "startSubscriptionMonitoring")
 				}
 				return
 			} else if len(timedOut) > 0 {
 				// Partial timeout - attempt subscription reset via subscription manager
-				cm.client.logger.Printf("startSubscriptionMonitoring: Partial timeout detected for %d/%d subscriptions",
-					len(timedOut), totalSubscriptions)
+				cm.client.logger.Warn("Partial timeout detected",
+					"function", "startSubscriptionMonitoring",
+					"timed_out", len(timedOut),
+					"total", totalSubscriptions)
 			}
 		}
 	}
@@ -309,35 +365,43 @@ func (cm *ConnectionManager) handleConnectionClosed() {
 
 // CloseConnection gracefully closes WebSocket connection
 func (cm *ConnectionManager) CloseConnection() error {
-	cm.client.logger.Println("===============================================")
-	cm.client.logger.Println("CloseConnection: Closing WebSocket connection")
-	cm.client.logger.Println("===============================================")
+	cm.client.logger.Info("Closing WebSocket connection",
+		"function", "CloseConnection")
 
 	if !cm.connected {
-		cm.client.logger.Println("CloseConnection: Already closed (no-op)")
+		cm.client.logger.Debug("Already closed (no-op)",
+			"function", "CloseConnection")
 		return nil // Already closed
 	}
 
 	if cm.client.conn != nil {
-		cm.client.logger.Println("CloseConnection: Sending close message...")
+		cm.client.logger.Debug("Sending close message",
+			"function", "CloseConnection")
 		// Send close message
 		err := cm.client.conn.WriteMessage(
 			websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
 		)
 		if err != nil {
-			cm.client.logger.Printf("⚠️  CloseConnection: Error sending close message: %v", err)
+			cm.client.logger.Warn("Error sending close message",
+				"function", "CloseConnection",
+				"error", err)
 		} else {
-			cm.client.logger.Println("✅ CloseConnection: Close message sent")
+			cm.client.logger.Debug("Close message sent",
+				"function", "CloseConnection")
 		}
 
-		cm.client.logger.Println("CloseConnection: Closing TCP connection...")
+		cm.client.logger.Debug("Closing TCP connection",
+			"function", "CloseConnection")
 		// Close connection
 		err = cm.client.conn.Close()
 		if err != nil {
-			cm.client.logger.Printf("⚠️  CloseConnection: Error closing connection: %v", err)
+			cm.client.logger.Warn("Error closing connection",
+				"function", "CloseConnection",
+				"error", err)
 		} else {
-			cm.client.logger.Println("✅ CloseConnection: TCP connection closed")
+			cm.client.logger.Debug("TCP connection closed",
+				"function", "CloseConnection")
 		}
 
 		cm.client.conn = nil
@@ -346,9 +410,8 @@ func (cm *ConnectionManager) CloseConnection() error {
 	cm.connected = false
 	cm.reconnectAttempts = 0
 
-	cm.client.logger.Println("===============================================")
-	cm.client.logger.Println("✅ CloseConnection: WebSocket connection closed successfully")
-	cm.client.logger.Println("===============================================")
+	cm.client.logger.Info("WebSocket connection closed successfully",
+		"function", "CloseConnection")
 	return nil
 }
 

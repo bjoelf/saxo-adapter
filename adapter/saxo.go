@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"sync"
@@ -15,7 +15,7 @@ import (
 
 // CreateBrokerServices creates Saxo broker client with injected auth client
 // Following dependency injection pattern like NewSaxoWebSocketClient()
-func CreateBrokerServices(authClient AuthClient, logger *log.Logger) (BrokerClient, error) {
+func CreateBrokerServices(authClient AuthClient, logger *slog.Logger) (BrokerClient, error) {
 	// Start authentication keeper if already authenticated (legacy WebSocket lifecycle pattern)
 	if authClient.IsAuthenticated() {
 		provider := os.Getenv("PROVIDER")
@@ -23,9 +23,13 @@ func CreateBrokerServices(authClient AuthClient, logger *log.Logger) (BrokerClie
 			provider = "saxo"
 		}
 		authClient.StartAuthenticationKeeper(provider)
-		logger.Println("Authentication keeper started for token refresh")
+		logger.Info("Authentication keeper started",
+			"function", "CreateBrokerServices",
+			"provider", provider)
 	} else {
-		logger.Println("Not authenticated - use /broker/login to authenticate")
+		logger.Info("Not authenticated",
+			"function", "CreateBrokerServices",
+			"message", "use /broker/login to authenticate")
 	}
 
 	// Create broker client (adapter layer)
@@ -45,7 +49,7 @@ type cachedHistoricalData struct {
 type SaxoBrokerClient struct {
 	authClient AuthClient
 	baseURL    string
-	logger     *log.Logger
+	logger     *slog.Logger
 
 	// Historical data cache following legacy SinglePivotHistory caching pattern
 	historyCache map[string]*cachedHistoricalData
@@ -54,7 +58,7 @@ type SaxoBrokerClient struct {
 }
 
 // NewSaxoBrokerClient creates a new Saxo broker client
-func NewSaxoBrokerClient(authClient AuthClient, baseURL string, logger *log.Logger) *SaxoBrokerClient {
+func NewSaxoBrokerClient(authClient AuthClient, baseURL string, logger *slog.Logger) *SaxoBrokerClient {
 	return &SaxoBrokerClient{
 		authClient:   authClient,
 		baseURL:      baseURL,
@@ -67,7 +71,11 @@ func NewSaxoBrokerClient(authClient AuthClient, baseURL string, logger *log.Logg
 // PlaceOrder implements BrokerClient.PlaceOrder
 // Converts generic OrderRequest to Saxo-specific format internally
 func (sbc *SaxoBrokerClient) PlaceOrder(ctx context.Context, req OrderRequest) (*OrderResponse, error) {
-	sbc.logger.Printf("PlaceOrder: Processing order for %s", req.Instrument.Ticker)
+	sbc.logger.Info("Processing order",
+		"function", "PlaceOrder",
+		"ticker", req.Instrument.Ticker,
+		"order_type", req.OrderType,
+		"side", req.Side)
 
 	// Check authentication
 	if !sbc.authClient.IsAuthenticated() {
@@ -116,15 +124,19 @@ func (sbc *SaxoBrokerClient) PlaceOrder(ctx context.Context, req OrderRequest) (
 	// Convert Saxo response to generic format
 	genericResp := sbc.convertFromSaxoResponse(saxoResp)
 
-	sbc.logger.Printf("Order placed successfully: OrderID=%s, Status=%s",
-		genericResp.OrderID, genericResp.Status)
+	sbc.logger.Info("Order placed successfully",
+		"function", "PlaceOrder",
+		"order_id", genericResp.OrderID,
+		"status", genericResp.Status)
 
 	return genericResp, nil
 }
 
 // DeleteOrder implements BrokerClient.DeleteOrder
 func (sbc *SaxoBrokerClient) DeleteOrder(ctx context.Context, orderID string) error {
-	sbc.logger.Printf("DeleteOrder: Cancelling order %s", orderID)
+	sbc.logger.Info("Cancelling order",
+		"function", "DeleteOrder",
+		"order_id", orderID)
 
 	// Check authentication
 	if !sbc.authClient.IsAuthenticated() {
@@ -151,14 +163,19 @@ func (sbc *SaxoBrokerClient) DeleteOrder(ctx context.Context, orderID string) er
 		return sbc.handleErrorResponse(resp)
 	}
 
-	sbc.logger.Printf("Order cancelled successfully: %s", orderID)
+	sbc.logger.Info("Order cancelled successfully",
+		"function", "DeleteOrder",
+		"order_id", orderID)
 	return nil
 }
 
 // CancelOrder implements BrokerClient.CancelOrder
 // Uses Saxo API: DELETE /trade/v2/orders/{OrderIds}?AccountKey={AccountKey}
 func (sbc *SaxoBrokerClient) CancelOrder(ctx context.Context, req CancelOrderRequest) error {
-	sbc.logger.Printf("CancelOrder: Cancelling order %s for account %s", req.OrderID, req.AccountKey)
+	sbc.logger.Info("Cancelling order",
+		"function", "CancelOrder",
+		"order_id", req.OrderID,
+		"account_key", req.AccountKey)
 
 	// Check authentication
 	if !sbc.authClient.IsAuthenticated() {
@@ -185,7 +202,9 @@ func (sbc *SaxoBrokerClient) CancelOrder(ctx context.Context, req CancelOrderReq
 
 	// Handle response - 200/204 = success
 	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent {
-		sbc.logger.Printf("Order cancelled successfully: %s", req.OrderID)
+		sbc.logger.Info("Order cancelled successfully",
+			"function", "CancelOrder",
+			"order_id", req.OrderID)
 		return nil
 	}
 
@@ -203,8 +222,11 @@ func (sbc *SaxoBrokerClient) CancelOrder(ctx context.Context, req CancelOrderReq
 // Therefore we use a simple opposite market order which works for both netting modes.
 // Reference: https://www.developer.saxo/openapi/learn/fifo-real-time-netting
 func (sbc *SaxoBrokerClient) ClosePosition(ctx context.Context, req ClosePositionRequest) (*OrderResponse, error) {
-	sbc.logger.Printf("ClosePosition: Closing position %s (NetPositionID: %s) for account %s",
-		req.PositionID, req.NetPositionID, req.AccountKey)
+	sbc.logger.Info("Closing position",
+		"function", "ClosePosition",
+		"position_id", req.PositionID,
+		"net_position_id", req.NetPositionID,
+		"account_key", req.AccountKey)
 
 	// Check authentication
 	if !sbc.authClient.IsAuthenticated() {
@@ -240,8 +262,13 @@ func (sbc *SaxoBrokerClient) ClosePosition(ctx context.Context, req ClosePositio
 		return nil, fmt.Errorf("failed to marshal close order: %w", err)
 	}
 
-	sbc.logger.Printf("ClosePosition: Placing %s market order for %.0f units", oppositeSide, req.Amount)
-	sbc.logger.Printf("ClosePosition: Request payload: %s", string(reqBody))
+	sbc.logger.Info("Placing market order to close position",
+		"function", "ClosePosition",
+		"side", oppositeSide,
+		"amount", req.Amount)
+	sbc.logger.Debug("Close position request payload",
+		"function", "ClosePosition",
+		"payload", string(reqBody))
 
 	// Create HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST",
@@ -271,7 +298,9 @@ func (sbc *SaxoBrokerClient) ClosePosition(ctx context.Context, req ClosePositio
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	sbc.logger.Printf("Position close order placed successfully. OrderID: %s", saxoResp.OrderId)
+	sbc.logger.Info("Position close order placed successfully",
+		"function", "ClosePosition",
+		"order_id", saxoResp.OrderId)
 
 	// Convert to generic response
 	return sbc.convertFromSaxoResponse(saxoResp), nil
@@ -279,7 +308,10 @@ func (sbc *SaxoBrokerClient) ClosePosition(ctx context.Context, req ClosePositio
 
 // ModifyOrder implements BrokerClient.ModifyOrder
 func (sbc *SaxoBrokerClient) ModifyOrder(ctx context.Context, req OrderModificationRequest) (*OrderResponse, error) {
-	sbc.logger.Printf("ModifyOrder: Modifying order %s to price %s", req.OrderID, req.OrderPrice)
+	sbc.logger.Info("Modifying order",
+		"function", "ModifyOrder",
+		"order_id", req.OrderID,
+		"new_price", req.OrderPrice)
 
 	// Check authentication
 	if !sbc.authClient.IsAuthenticated() {
@@ -337,7 +369,9 @@ func (sbc *SaxoBrokerClient) ModifyOrder(ctx context.Context, req OrderModificat
 		return nil, fmt.Errorf("HTTP %d: order modification failed", resp.StatusCode)
 	}
 
-	sbc.logger.Printf("Order modified successfully: %s", req.OrderID)
+	sbc.logger.Info("Order modified successfully",
+		"function", "ModifyOrder",
+		"order_id", req.OrderID)
 	return &OrderResponse{
 		OrderID:   req.OrderID,
 		Status:    "Modified",
@@ -347,7 +381,9 @@ func (sbc *SaxoBrokerClient) ModifyOrder(ctx context.Context, req OrderModificat
 
 // GetOrderStatus implements BrokerClient.GetOrderStatus
 func (sbc *SaxoBrokerClient) GetOrderStatus(ctx context.Context, orderID string) (*OrderStatus, error) {
-	sbc.logger.Printf("GetOrderStatus: Checking order %s", orderID)
+	sbc.logger.Debug("Checking order status",
+		"function", "GetOrderStatus",
+		"order_id", orderID)
 
 	// Check authentication
 	if !sbc.authClient.IsAuthenticated() {
@@ -424,7 +460,9 @@ func (sbc *SaxoBrokerClient) GetOpenOrders(ctx context.Context) ([]LiveOrder, er
 		liveOrders = append(liveOrders, liveOrder)
 	}
 
-	sbc.logger.Printf("GetOpenOrders: Retrieved %d open orders", len(liveOrders))
+	sbc.logger.Info("Retrieved open orders",
+		"function", "GetOpenOrders",
+		"count", len(liveOrders))
 	return liveOrders, nil
 }
 
@@ -458,7 +496,9 @@ func (sbc *SaxoBrokerClient) GetOpenPositions(ctx context.Context) (*SaxoOpenPos
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
-	sbc.logger.Printf("DEBUG GetOpenPositions: Response body: %s", string(bodyBytes))
+	sbc.logger.Debug("GetOpenPositions response body",
+		"function", "GetOpenPositions",
+		"body", string(bodyBytes))
 
 	// Parse Saxo response
 	var saxoResponse SaxoOpenPositionsResponse
@@ -466,7 +506,9 @@ func (sbc *SaxoBrokerClient) GetOpenPositions(ctx context.Context) (*SaxoOpenPos
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	sbc.logger.Printf("GetOpenPositions: Retrieved %d open positions", len(saxoResponse.Data))
+	sbc.logger.Info("Retrieved open positions",
+		"function", "GetOpenPositions",
+		"count", len(saxoResponse.Data))
 	return &saxoResponse, nil
 }
 
@@ -500,7 +542,9 @@ func (sbc *SaxoBrokerClient) GetNetPositions(ctx context.Context) (*SaxoNetPosit
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	sbc.logger.Printf("GetNetPositions: Retrieved %d net positions", len(saxoResponse.Data))
+	sbc.logger.Info("Retrieved net positions",
+		"function", "GetNetPositions",
+		"count", len(saxoResponse.Data))
 	return &saxoResponse, nil
 }
 
@@ -537,7 +581,9 @@ func (sbc *SaxoBrokerClient) GetClosedPositions(ctx context.Context) (*SaxoClose
 	// Check if response is an empty array
 	trimmed := bytes.TrimSpace(bodyBytes)
 	if len(trimmed) == 2 && trimmed[0] == '[' && trimmed[1] == ']' {
-		sbc.logger.Printf("GetClosedPositions: No closed positions (empty array response)")
+		sbc.logger.Info("No closed positions",
+			"function", "GetClosedPositions",
+			"response_type", "empty_array")
 		return &SaxoClosedPositionsResponse{
 			Data:  []SaxoClosedPosition{},
 			Count: 0,
@@ -547,17 +593,23 @@ func (sbc *SaxoBrokerClient) GetClosedPositions(ctx context.Context) (*SaxoClose
 	// Parse Saxo response (normal case with data)
 	var saxoResponse SaxoClosedPositionsResponse
 	if err := json.Unmarshal(bodyBytes, &saxoResponse); err != nil {
-		sbc.logger.Printf("GetClosedPositions: Failed to decode response. Body: %s", string(bodyBytes))
+		sbc.logger.Error("Failed to decode closed positions response",
+			"function", "GetClosedPositions",
+			"body", string(bodyBytes),
+			"error", err)
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	sbc.logger.Printf("GetClosedPositions: Retrieved %d closed positions", len(saxoResponse.Data))
+	sbc.logger.Info("Retrieved closed positions",
+		"function", "GetClosedPositions",
+		"count", len(saxoResponse.Data))
 	return &saxoResponse, nil
 }
 
 // GetAccounts implements BrokerClient.GetAccounts with generic return type
 func (sbc *SaxoBrokerClient) GetAccounts(ctx context.Context) (*Accounts, error) {
-	sbc.logger.Printf("GetAccounts: Fetching accounts")
+	sbc.logger.Debug("Fetching accounts",
+		"function", "GetAccounts")
 
 	url := fmt.Sprintf("%s/port/v1/accounts/me", sbc.baseURL)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -619,8 +671,12 @@ func (sbc *SaxoBrokerClient) GetAccountBalance(ctx context.Context) (*SaxoBalanc
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	sbc.logger.Printf("GetAccountBalance: Retrieved balance - Total: %.2f %s, Margin Used: %.2f, Margin Available: %.2f",
-		balance.TotalValue, balance.Currency, balance.MarginUsedByCurrentPositions, balance.MarginAvailableForTrading)
+	sbc.logger.Info("Retrieved account balance",
+		"function", "GetAccountBalance",
+		"total_value", balance.TotalValue,
+		"currency", balance.Currency,
+		"margin_used", balance.MarginUsedByCurrentPositions,
+		"margin_available", balance.MarginAvailableForTrading)
 	return &balance, nil
 }
 
@@ -653,7 +709,9 @@ func (sbc *SaxoBrokerClient) GetMarginOverview(ctx context.Context, clientKey st
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	sbc.logger.Printf("GetMarginOverview: Retrieved %d margin groups", len(marginOverview.Groups))
+	sbc.logger.Info("Retrieved margin overview",
+		"function", "GetMarginOverview",
+		"groups_count", len(marginOverview.Groups))
 	return &marginOverview, nil
 }
 
@@ -685,13 +743,17 @@ func (sbc *SaxoBrokerClient) GetClientInfo(ctx context.Context) (*SaxoClientInfo
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	sbc.logger.Printf("GetClientInfo: Retrieved client info for %s (ClientKey: %s)", clientInfo.Name, clientInfo.ClientKey)
+	sbc.logger.Info("Retrieved client info",
+		"function", "GetClientInfo",
+		"name", clientInfo.Name,
+		"client_key", clientInfo.ClientKey)
 	return &clientInfo, nil
 }
 
 // GetBalance implements BrokerClient.GetBalance with generic return type
 func (sbc *SaxoBrokerClient) GetBalance(ctx context.Context) (*Balance, error) {
-	sbc.logger.Printf("GetBalance: Fetching account balance")
+	sbc.logger.Debug("Fetching account balance",
+		"function", "GetBalance")
 
 	// Get Saxo-specific balance
 	saxoBalance, err := sbc.GetAccountBalance(ctx)
@@ -762,13 +824,19 @@ func (sbc *SaxoBrokerClient) convertFromSaxoStatus(saxoStatus SaxoOrderStatus) *
 // convertFromSaxoOpenOrder converts Saxo open order to domain LiveOrder
 func (sbc *SaxoBrokerClient) convertFromSaxoOpenOrder(saxoOrder SaxoOpenOrder) LiveOrder {
 	// Debug: Log what we're receiving from Saxo API
-	sbc.logger.Printf("DEBUG convertFromSaxoOpenOrder: OrderID=%s, Symbol=%q, Description=%q",
-		saxoOrder.OrderID, saxoOrder.DisplayAndFormat.Symbol, saxoOrder.DisplayAndFormat.Description)
+	sbc.logger.Debug("Converting Saxo open order",
+		"function", "convertFromSaxoOpenOrder",
+		"order_id", saxoOrder.OrderID,
+		"symbol", saxoOrder.DisplayAndFormat.Symbol,
+		"description", saxoOrder.DisplayAndFormat.Description)
 
 	// Parse order time
 	orderTime, err := time.Parse(time.RFC3339, saxoOrder.OrderTime)
 	if err != nil {
-		sbc.logger.Printf("WARNING: Failed to parse order time %s: %v", saxoOrder.OrderTime, err)
+		sbc.logger.Warn("Failed to parse order time",
+			"function", "convertFromSaxoOpenOrder",
+			"order_time", saxoOrder.OrderTime,
+			"error", err)
 		orderTime = time.Now()
 	}
 
@@ -842,7 +910,10 @@ func (sbc *SaxoBrokerClient) GetTradingSchedule(ctx context.Context, params Trad
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	sbc.logger.Printf("Trading schedule retrieved for UIC %d: %d sessions", params.Uic, len(saxoSchedule.Sessions))
+	sbc.logger.Info("Retrieved trading schedule",
+		"function", "GetTradingSchedule",
+		"uic", params.Uic,
+		"sessions_count", len(saxoSchedule.Sessions))
 
 	// Convert to generic TradingSchedule (identical schema - convert each phase)
 	phases := make([]TradingPhase, len(saxoSchedule.Phases))
@@ -864,7 +935,9 @@ func (sbc *SaxoBrokerClient) GetTradingSchedule(ctx context.Context, params Trad
 // Following legacy broker/broker_http.go price conversion patterns
 func (sbc *SaxoBrokerClient) convertFromSaxoPrice(saxoPrice SaxoPriceResponse, ticker string) *PriceData {
 	if len(saxoPrice.Data) == 0 {
-		sbc.logger.Printf("Warning: Empty price data for %s", ticker)
+		sbc.logger.Warn("Empty price data",
+			"function", "convertFromSaxoPrice",
+			"ticker", ticker)
 		return &PriceData{
 			Ticker:    ticker,
 			Bid:       0.0,
@@ -914,7 +987,10 @@ func (sbc *SaxoBrokerClient) handleErrorResponse(resp *http.Response) error {
 // SearchInstruments implements BrokerClient.SearchInstruments
 // Searches for instruments matching criteria
 func (sbc *SaxoBrokerClient) SearchInstruments(ctx context.Context, params InstrumentSearchParams) ([]Instrument, error) {
-	sbc.logger.Printf("SearchInstruments: Searching for %s instruments with keywords '%s'", params.AssetType, params.Keywords)
+	sbc.logger.Info("Searching instruments",
+		"function", "SearchInstruments",
+		"asset_type", params.AssetType,
+		"keywords", params.Keywords)
 
 	if !sbc.authClient.IsAuthenticated() {
 		return nil, fmt.Errorf("not authenticated with broker")
@@ -969,14 +1045,18 @@ func (sbc *SaxoBrokerClient) SearchInstruments(ctx context.Context, params Instr
 		}
 	}
 
-	sbc.logger.Printf("Found %d instruments", len(instruments))
+	sbc.logger.Info("Found instruments",
+		"function", "SearchInstruments",
+		"count", len(instruments))
 	return instruments, nil
 }
 
 // GetInstrumentDetails implements BrokerClient.GetInstrumentDetails
 // Gets detailed instrument information for multiple UICs
 func (sbc *SaxoBrokerClient) GetInstrumentDetails(ctx context.Context, uics []int) ([]InstrumentDetail, error) {
-	sbc.logger.Printf("GetInstrumentDetails: Fetching details for %d instruments", len(uics))
+	sbc.logger.Info("Fetching instrument details",
+		"function", "GetInstrumentDetails",
+		"count", len(uics))
 
 	if !sbc.authClient.IsAuthenticated() {
 		return nil, fmt.Errorf("not authenticated with broker")
@@ -1054,14 +1134,19 @@ func (sbc *SaxoBrokerClient) GetInstrumentDetails(ctx context.Context, uics []in
 		details[i] = detail
 	}
 
-	sbc.logger.Printf("Retrieved details for %d instruments", len(details))
+	sbc.logger.Info("Retrieved instrument details",
+		"function", "GetInstrumentDetails",
+		"count", len(details))
 	return details, nil
 }
 
 // GetInstrumentPrices implements BrokerClient.GetInstrumentPrices
 // Gets price information (including open interest) for instrument selection
 func (sbc *SaxoBrokerClient) GetInstrumentPrices(ctx context.Context, uics []int, fieldGroups string, assetType string) ([]InstrumentPriceInfo, error) {
-	sbc.logger.Printf("GetInstrumentPrices: Fetching prices for %d instruments (AssetType: %s)", len(uics), assetType)
+	sbc.logger.Info("Fetching instrument prices",
+		"function", "GetInstrumentPrices",
+		"count", len(uics),
+		"asset_type", assetType)
 
 	if !sbc.authClient.IsAuthenticated() {
 		return nil, fmt.Errorf("not authenticated with broker")
@@ -1118,6 +1203,8 @@ func (sbc *SaxoBrokerClient) GetInstrumentPrices(ctx context.Context, uics []int
 		}
 	}
 
-	sbc.logger.Printf("Retrieved prices for %d instruments", len(prices))
+	sbc.logger.Info("Retrieved instrument prices",
+		"function", "GetInstrumentPrices",
+		"count", len(prices))
 	return prices, nil
 }

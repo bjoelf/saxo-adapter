@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -23,7 +23,7 @@ type SaxoWebSocketClient struct {
 	apiBaseURL   string // For HTTP API calls (subscriptions, etc.) - https://gateway.saxobank.com/sim/openapi
 	websocketURL string // For WebSocket connection - https://sim-streaming.saxobank.com/sim/oapi
 	authClient   saxo.AuthClient
-	logger       *log.Logger
+	logger       *slog.Logger
 
 	// Component managers - following clean architecture separation
 	subscriptionManager *SubscriptionManager
@@ -84,7 +84,7 @@ type SaxoWebSocketClient struct {
 // NewSaxoWebSocketClient creates WebSocket client following legacy broker_websocket.go patterns
 // apiBaseURL: For HTTP API calls (e.g., https://gateway.saxobank.com/sim/openapi)
 // websocketURL: For WebSocket connection (e.g., https://sim-streaming.saxobank.com/sim/oapi)
-func NewSaxoWebSocketClient(authClient saxo.AuthClient, apiBaseURL string, websocketURL string, logger *log.Logger) *SaxoWebSocketClient {
+func NewSaxoWebSocketClient(authClient saxo.AuthClient, apiBaseURL string, websocketURL string, logger *slog.Logger) *SaxoWebSocketClient {
 	// NOTE: Context will be created in EstablishConnection(), not here
 	// Following legacy broker_websocket.go pattern where context is created in startWebSocket()
 	// This prevents context lifecycle issues during reconnections
@@ -133,23 +133,35 @@ func (ws *SaxoWebSocketClient) Connect(ctx context.Context) error {
 // SubscribeToPrices delegates to subscription manager following clean architecture
 // assetType: "FxSpot", "ContractFutures", "CfdOnFutures", etc.
 func (ws *SaxoWebSocketClient) SubscribeToPrices(ctx context.Context, instruments []string, assetType string) error {
-	ws.logger.Printf("SaxoWebSocket: Subscribing to price feeds for %d instruments (AssetType: %s): %v", len(instruments), assetType, instruments)
+	ws.logger.Info("Subscribing to price feeds",
+		"function", "SubscribeToPrices",
+		"instrument_count", len(instruments),
+		"asset_type", assetType,
+		"instruments", instruments)
 	err := ws.subscriptionManager.SubscribeToInstrumentPrices(instruments, assetType)
 	if err != nil {
-		ws.logger.Printf("SaxoWebSocket: Price subscription failed: %v", err)
+		ws.logger.Error("Price subscription failed",
+			"function", "SubscribeToPrices",
+			"error", err)
 		return err
 	}
-	ws.logger.Printf("SaxoWebSocket: ✅ Price subscription successful for %d instruments (AssetType: %s)", len(instruments), assetType)
+	ws.logger.Info("Price subscription successful",
+		"function", "SubscribeToPrices",
+		"instrument_count", len(instruments),
+		"asset_type", assetType)
 	return nil
 }
 
 // SubscribeToOrders delegates to subscription manager
 func (ws *SaxoWebSocketClient) SubscribeToOrders(ctx context.Context) error {
-	ws.logger.Println("SaxoWebSocket: Subscribing to order status updates...")
+	ws.logger.Info("Subscribing to order status updates",
+		"function", "SubscribeToOrders")
 
 	// Fetch ClientKey from broker if not already cached
 	if err := ws.ensureClientKey(ctx); err != nil {
-		ws.logger.Printf("SaxoWebSocket: Failed to get ClientKey: %v", err)
+		ws.logger.Error("Failed to get ClientKey",
+			"function", "SubscribeToOrders",
+			"error", err)
 		return fmt.Errorf("failed to get ClientKey for order subscription: %w", err)
 	}
 
@@ -157,23 +169,31 @@ func (ws *SaxoWebSocketClient) SubscribeToOrders(ctx context.Context) error {
 	clientKey := ws.clientKey
 	ws.clientKeyMu.RUnlock()
 
-	ws.logger.Printf("SaxoWebSocket: Using ClientKey: %s", clientKey)
+	ws.logger.Debug("Using ClientKey for orders",
+		"function", "SubscribeToOrders",
+		"client_key", clientKey)
 	err := ws.subscriptionManager.SubscribeToOrderUpdates(clientKey)
 	if err != nil {
-		ws.logger.Printf("SaxoWebSocket: Order subscription failed: %v", err)
+		ws.logger.Error("Order subscription failed",
+			"function", "SubscribeToOrders",
+			"error", err)
 		return err
 	}
-	ws.logger.Println("SaxoWebSocket: ✅ Order subscription successful")
+	ws.logger.Info("Order subscription successful",
+		"function", "SubscribeToOrders")
 	return nil
 }
 
 // SubscribeToPortfolio delegates to subscription manager
 func (ws *SaxoWebSocketClient) SubscribeToPortfolio(ctx context.Context) error {
-	ws.logger.Println("SaxoWebSocket: Subscribing to portfolio balance updates...")
+	ws.logger.Info("Subscribing to portfolio balance updates",
+		"function", "SubscribeToPortfolio")
 
 	// Fetch ClientKey from broker if not already cached
 	if err := ws.ensureClientKey(ctx); err != nil {
-		ws.logger.Printf("SaxoWebSocket: Failed to get ClientKey: %v", err)
+		ws.logger.Error("Failed to get ClientKey",
+			"function", "SubscribeToPortfolio",
+			"error", err)
 		return fmt.Errorf("failed to get ClientKey for portfolio subscription: %w", err)
 	}
 
@@ -181,26 +201,35 @@ func (ws *SaxoWebSocketClient) SubscribeToPortfolio(ctx context.Context) error {
 	clientKey := ws.clientKey
 	ws.clientKeyMu.RUnlock()
 
-	ws.logger.Printf("SaxoWebSocket: Using ClientKey: %s", clientKey)
+	ws.logger.Debug("Using ClientKey for portfolio",
+		"function", "SubscribeToPortfolio",
+		"client_key", clientKey)
 	err := ws.subscriptionManager.SubscribeToPortfolioUpdates(clientKey)
 	if err != nil {
-		ws.logger.Printf("SaxoWebSocket: Portfolio subscription failed: %v", err)
+		ws.logger.Error("Portfolio subscription failed",
+			"function", "SubscribeToPortfolio",
+			"error", err)
 		return err
 	}
-	ws.logger.Println("SaxoWebSocket: ✅ Portfolio subscription successful")
+	ws.logger.Info("Portfolio subscription successful",
+		"function", "SubscribeToPortfolio")
 	return nil
 }
 
 // SubscribeToSessionEvents delegates to subscription manager
 // Reference: pivot-web/broker/broker_websocket.go:63 - sessionsSubscriptionPath
 func (ws *SaxoWebSocketClient) SubscribeToSessionEvents(ctx context.Context) error {
-	ws.logger.Println("SaxoWebSocket: Subscribing to session events...")
+	ws.logger.Info("Subscribing to session events",
+		"function", "SubscribeToSessionEvents")
 	err := ws.subscriptionManager.SubscribeToSessionEvents()
 	if err != nil {
-		ws.logger.Printf("SaxoWebSocket: Session events subscription failed: %v", err)
+		ws.logger.Error("Session events subscription failed",
+			"function", "SubscribeToSessionEvents",
+			"error", err)
 		return err
 	}
-	ws.logger.Println("SaxoWebSocket: ✅ Session events subscription successful")
+	ws.logger.Info("Session events subscription successful",
+		"function", "SubscribeToSessionEvents")
 	return nil
 }
 
@@ -220,7 +249,9 @@ func (ws *SaxoWebSocketClient) ensureClientKey(ctx context.Context) error {
 	ws.clientKeyMu.RLock()
 	if ws.clientKey != "" {
 		ws.clientKeyMu.RUnlock()
-		ws.logger.Printf("ensureClientKey: Using cached ClientKey: %s", ws.clientKey)
+		ws.logger.Debug("Using cached ClientKey",
+			"function", "ensureClientKey",
+			"client_key", ws.clientKey)
 		return nil
 	}
 	ws.clientKeyMu.RUnlock()
@@ -231,7 +262,9 @@ func (ws *SaxoWebSocketClient) ensureClientKey(ctx context.Context) error {
 
 	// Double-check after acquiring write lock (another goroutine may have fetched)
 	if ws.clientKey != "" {
-		ws.logger.Printf("ensureClientKey: ClientKey was fetched by another goroutine: %s", ws.clientKey)
+		ws.logger.Debug("ClientKey was fetched by another goroutine",
+			"function", "ensureClientKey",
+			"client_key", ws.clientKey)
 		return nil
 	}
 
@@ -243,7 +276,8 @@ func (ws *SaxoWebSocketClient) ensureClientKey(ctx context.Context) error {
 	// The saxo-adapter pattern is: authClient -> brokerClient -> GetClientInfo()
 	// Since SaxoWebSocketClient only has authClient, we need to create a broker client
 
-	ws.logger.Println("ensureClientKey: Fetching ClientKey from /port/v1/users/me...")
+	ws.logger.Debug("Fetching ClientKey from /port/v1/users/me",
+		"function", "ensureClientKey")
 
 	// Create a temporary broker client to fetch client info
 	// Following saxo-adapter pattern: CreateBrokerServices(authClient, logger)
@@ -263,7 +297,9 @@ func (ws *SaxoWebSocketClient) ensureClientKey(ctx context.Context) error {
 
 	// Cache the ClientKey
 	ws.clientKey = clientInfo.ClientKey
-	ws.logger.Printf("ensureClientKey: ✅ Successfully fetched and cached ClientKey: %s", ws.clientKey)
+	ws.logger.Info("Successfully fetched and cached ClientKey",
+		"function", "ensureClientKey",
+		"client_key", ws.clientKey)
 
 	return nil
 }
@@ -311,21 +347,26 @@ func (ws *SaxoWebSocketClient) readMessages() {
 			ws.readerDone = nil
 		}
 		ws.readerMu.Unlock()
-		ws.logger.Println("readMessages: Reader goroutine exiting")
+		ws.logger.Debug("Reader goroutine exiting",
+			"function", "readMessages")
 
 		// Panic recovery
 		if r := recover(); r != nil {
-			ws.logger.Printf("Panic in readMessages: %v", r)
+			ws.logger.Error("Panic in readMessages",
+				"function", "readMessages",
+				"panic", r)
 		}
 	}()
 
-	ws.logger.Println("readMessages: Reader goroutine started")
+	ws.logger.Info("Reader goroutine started",
+		"function", "readMessages")
 
 	for {
 		// Check for context cancellation (clean shutdown)
 		select {
 		case <-ws.ctx.Done():
-			ws.logger.Println("readMessages: Context canceled, exiting")
+			ws.logger.Info("Context canceled, exiting reader",
+				"function", "readMessages")
 			return
 		default:
 			// Continue reading
@@ -334,7 +375,9 @@ func (ws *SaxoWebSocketClient) readMessages() {
 		// Set read deadline (1 minute - aligns with Saxo's _heartbeat every ~60s)
 		deadline := time.Now().Add(1 * time.Minute)
 		if err := ws.conn.SetReadDeadline(deadline); err != nil {
-			ws.logger.Printf("readMessages: WARNING - Failed to set read deadline: %v", err)
+			ws.logger.Warn("Failed to set read deadline",
+				"function", "readMessages",
+				"error", err)
 		}
 
 		// BLOCKING READ - but that's OK, this goroutine ONLY reads
@@ -342,33 +385,40 @@ func (ws *SaxoWebSocketClient) readMessages() {
 
 		if err != nil {
 			// Log detailed error information
-			ws.logger.Println("===============================================")
-			ws.logger.Printf("❌ readMessages: ReadMessage ERROR detected")
-			ws.logger.Printf("   Error: %v", err)
-			ws.logger.Printf("   Error type: %T", err)
+			ws.logger.Error("ReadMessage ERROR detected",
+				"function", "readMessages",
+				"error", err,
+				"error_type", fmt.Sprintf("%T", err))
 
 			// Check if it's a close error
 			if closeErr, ok := err.(*websocket.CloseError); ok {
-				ws.logger.Printf("   Close error code: %d", closeErr.Code)
-				ws.logger.Printf("   Close error text: %q", closeErr.Text)
+				ws.logger.Error("WebSocket close error details",
+					"function", "readMessages",
+					"code", closeErr.Code,
+					"text", closeErr.Text)
 			}
 
 			// Check for network errors
 			if netErr, ok := err.(net.Error); ok {
-				ws.logger.Printf("   Network error - Timeout: %v, Temporary: %v", netErr.Timeout(), netErr.Temporary())
+				ws.logger.Error("Network error details",
+					"function", "readMessages",
+					"timeout", netErr.Timeout(),
+					"temporary", netErr.Temporary())
 			}
-
-			ws.logger.Println("===============================================")
 
 			// Don't process error here - just report it to processor
 			select {
 			case ws.connectionErrors <- err:
-				ws.logger.Printf("readMessages: Error sent to processor channel")
+				ws.logger.Debug("Error sent to processor channel",
+					"function", "readMessages")
 			case <-ws.ctx.Done():
-				ws.logger.Println("readMessages: Context canceled while sending error")
+				ws.logger.Debug("Context canceled while sending error",
+					"function", "readMessages")
 				return
 			case <-time.After(1 * time.Second):
-				ws.logger.Printf("❌ readMessages: CRITICAL - Error channel full, dropping error: %v", err)
+				ws.logger.Error("CRITICAL - Error channel full, dropping error",
+					"function", "readMessages",
+					"error", err)
 			}
 
 			// Exit reader on any error - processor will decide what to do
@@ -392,15 +442,21 @@ func (ws *SaxoWebSocketClient) readMessages() {
 			// Only log if queue is getting backed up (>10 messages)
 			queueLen := len(ws.incomingMessages)
 			if queueLen > 10 {
-				ws.logger.Printf("readMessages: Queue backpressure detected - %d messages pending (type=%d, size=%d bytes)",
-					queueLen, messageType, len(message))
+				ws.logger.Warn("Queue backpressure detected",
+					"function", "readMessages",
+					"pending_messages", queueLen,
+					"message_type", messageType,
+					"message_size", len(message))
 			}
 		case <-ws.ctx.Done():
 			return
 		case <-time.After(1 * time.Second):
 			// Channel full - this is a problem, always log
-			ws.logger.Printf("readMessages: CRITICAL - Message channel full, dropping message (type=%d, size=%d bytes, queue=%d)",
-				messageType, len(message), len(ws.incomingMessages))
+			ws.logger.Error("CRITICAL - Message channel full, dropping message",
+				"function", "readMessages",
+				"message_type", messageType,
+				"message_size", len(message),
+				"queue_length", len(ws.incomingMessages))
 		}
 	}
 }
@@ -423,20 +479,25 @@ func (ws *SaxoWebSocketClient) processMessages() {
 			ws.processorDone = nil
 		}
 		ws.processorMu.Unlock()
-		ws.logger.Println("processMessages: Processor goroutine exiting")
+		ws.logger.Debug("Processor goroutine exiting",
+			"function", "processMessages")
 
 		// Panic recovery
 		if r := recover(); r != nil {
-			ws.logger.Printf("Panic in processMessages: %v", r)
+			ws.logger.Error("Panic in processMessages",
+				"function", "processMessages",
+				"panic", r)
 		}
 	}()
 
-	ws.logger.Println("processMessages: Processor goroutine started")
+	ws.logger.Info("Processor goroutine started",
+		"function", "processMessages")
 
 	for {
 		select {
 		case <-ws.ctx.Done():
-			ws.logger.Println("processMessages: Context canceled, exiting")
+			ws.logger.Info("Context canceled, exiting processor",
+				"function", "processMessages")
 			return
 
 		case msg := <-ws.incomingMessages:
@@ -460,17 +521,25 @@ func (ws *SaxoWebSocketClient) processOneMessage(msg websocketMessage) {
 		//ws.logger.Printf("Processing binary message (size=%d bytes)", len(msg.Data))
 		// Delegate to message handler
 		if err := ws.messageHandler.ProcessMessage(msg.Data); err != nil {
-			ws.logger.Printf("processOneMessage: Message handling error: %v", err)
+			ws.logger.Error("Message handling error",
+				"function", "processOneMessage",
+				"message_type", "binary",
+				"error", err)
 		}
 
 	case websocket.TextMessage:
-		ws.logger.Printf("processOneMessage: Received unexpected text message")
+		ws.logger.Warn("Received unexpected text message",
+			"function", "processOneMessage")
 		if err := ws.messageHandler.ProcessMessage(msg.Data); err != nil {
-			ws.logger.Printf("processOneMessage: Message handling error: %v", err)
+			ws.logger.Error("Message handling error",
+				"function", "processOneMessage",
+				"message_type", "text",
+				"error", err)
 		}
 
 	case websocket.CloseMessage:
-		ws.logger.Println("processOneMessage: Received close frame from server")
+		ws.logger.Info("Received close frame from server",
+			"function", "processOneMessage")
 		ws.connectionManager.CloseConnection()
 
 	case websocket.PingMessage:
@@ -478,32 +547,43 @@ func (ws *SaxoWebSocketClient) processOneMessage(msg websocketMessage) {
 		// They use application-level _heartbeat control messages instead
 		// Per Saxo documentation: Client NEVER writes to WebSocket (only reads)
 		// CRITICAL: Removed Pong write - this was causing race condition and Close 1006 errors!
-		ws.logger.Println("processOneMessage: Received unexpected ping frame (Saxo doesn't use these)")
+		ws.logger.Warn("Received unexpected ping frame",
+			"function", "processOneMessage",
+			"note", "Saxo doesn't use WebSocket ping/pong")
 
 	case websocket.PongMessage:
 		// Saxo Bank does NOT use WebSocket Ping/Pong frames
-		ws.logger.Println("processOneMessage: Received unexpected pong frame (Saxo doesn't use these)")
+		ws.logger.Warn("Received unexpected pong frame",
+			"function", "processOneMessage",
+			"note", "Saxo doesn't use WebSocket ping/pong")
 
 	default:
-		ws.logger.Printf("processOneMessage: Unknown message type: %d", msg.MessageType)
+		ws.logger.Warn("Unknown message type",
+			"function", "processOneMessage",
+			"message_type", msg.MessageType)
 	}
 }
 
 // handleConnectionError decides what to do about connection errors
 // Following legacy broker_websocket.go pattern - routes to reconnection handler
 func (ws *SaxoWebSocketClient) handleConnectionError(err error) {
-	ws.logger.Printf("handleConnectionError: Processing error: %v", err)
+	ws.logger.Error("Processing connection error",
+		"function", "handleConnectionError",
+		"error", err)
 
 	// Classify error and decide strategy
 	if websocket.IsCloseError(err, websocket.CloseNormalClosure) {
-		ws.logger.Println("handleConnectionError: Normal closure, no reconnect needed")
+		ws.logger.Info("Normal closure, no reconnect needed",
+			"function", "handleConnectionError")
 		ws.connectionManager.CloseConnection()
 		return
 	}
 
 	if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) ||
 		strings.Contains(err.Error(), "forcibly closed by the remote host") {
-		ws.logger.Printf("handleConnectionError: Unexpected close, triggering full reconnect")
+		ws.logger.Warn("Unexpected close, triggering full reconnect",
+			"function", "handleConnectionError",
+			"error", err)
 
 		// Mark connection as closed immediately
 		ws.connectionManager.handleConnectionClosed()
@@ -511,28 +591,36 @@ func (ws *SaxoWebSocketClient) handleConnectionError(err error) {
 		// Send to reconnection handler (non-blocking)
 		select {
 		case ws.reconnectionTrigger <- err:
-			ws.logger.Println("handleConnectionError: Reconnection request queued")
+			ws.logger.Debug("Reconnection request queued",
+				"function", "handleConnectionError")
 		default:
-			ws.logger.Println("handleConnectionError: Reconnection already queued, skipping duplicate")
+			ws.logger.Debug("Reconnection already queued, skipping duplicate",
+				"function", "handleConnectionError")
 		}
 		return
 	}
 
 	if strings.Contains(err.Error(), "use of closed network connection") {
-		ws.logger.Printf("handleConnectionError: Closed network connection: %v", err)
+		ws.logger.Debug("Closed network connection detected",
+			"function", "handleConnectionError",
+			"error", err)
 		ws.connectionManager.handleConnectionClosed()
 		return
 	}
 
 	// Other errors - mark connection closed and send to reconnection handler
-	ws.logger.Printf("handleConnectionError: Unhandled error type, queueing reconnect: %v", err)
+	ws.logger.Warn("Unhandled error type, queueing reconnect",
+		"function", "handleConnectionError",
+		"error", err)
 	ws.connectionManager.handleConnectionClosed()
 
 	select {
 	case ws.reconnectionTrigger <- err:
-		ws.logger.Println("handleConnectionError: Reconnection request queued")
+		ws.logger.Debug("Reconnection request queued",
+			"function", "handleConnectionError")
 	default:
-		ws.logger.Println("handleConnectionError: Reconnection already queued, skipping duplicate")
+		ws.logger.Debug("Reconnection already queued, skipping duplicate",
+			"function", "handleConnectionError")
 	}
 }
 
@@ -551,12 +639,15 @@ func (ws *SaxoWebSocketClient) Close() error {
 	ws.readerMu.Unlock()
 
 	if readerIsRunning && readerDoneChannel != nil {
-		ws.logger.Println("Close: Waiting for reader goroutine to exit...")
+		ws.logger.Info("Waiting for reader goroutine to exit",
+			"function", "Close")
 		select {
 		case <-readerDoneChannel:
-			ws.logger.Println("Close: Reader exited cleanly")
+			ws.logger.Info("Reader exited cleanly",
+				"function", "Close")
 		case <-time.After(5 * time.Second):
-			ws.logger.Println("Close: Reader exit timeout (forced shutdown)")
+			ws.logger.Warn("Reader exit timeout (forced shutdown)",
+				"function", "Close")
 		}
 	}
 
@@ -567,12 +658,15 @@ func (ws *SaxoWebSocketClient) Close() error {
 	ws.processorMu.Unlock()
 
 	if processorIsRunning && processorDoneChannel != nil {
-		ws.logger.Println("Close: Waiting for processor goroutine to exit...")
+		ws.logger.Info("Waiting for processor goroutine to exit",
+			"function", "Close")
 		select {
 		case <-processorDoneChannel:
-			ws.logger.Println("Close: Processor exited cleanly")
+			ws.logger.Info("Processor exited cleanly",
+				"function", "Close")
 		case <-time.After(5 * time.Second):
-			ws.logger.Println("Close: Processor exit timeout (forced shutdown)")
+			ws.logger.Warn("Processor exit timeout (forced shutdown)",
+				"function", "Close")
 		}
 	}
 
@@ -584,12 +678,15 @@ func (ws *SaxoWebSocketClient) Close() error {
 	ws.reconnectionHandlerMu.Unlock()
 
 	if reconnectionHandlerIsRunning && reconnectionHandlerDoneChannel != nil {
-		ws.logger.Println("Close: Waiting for reconnection handler goroutine to exit...")
+		ws.logger.Info("Waiting for reconnection handler goroutine to exit",
+			"function", "Close")
 		select {
 		case <-reconnectionHandlerDoneChannel:
-			ws.logger.Println("Close: Reconnection handler exited cleanly")
+			ws.logger.Info("Reconnection handler exited cleanly",
+				"function", "Close")
 		case <-time.After(5 * time.Second):
-			ws.logger.Println("Close: Reconnection handler exit timeout (forced shutdown)")
+			ws.logger.Warn("Reconnection handler exit timeout (forced shutdown)",
+				"function", "Close")
 		}
 	}
 
@@ -615,22 +712,29 @@ func (ws *SaxoWebSocketClient) handleReconnectionRequests() {
 			ws.reconnectionHandlerDone = nil
 		}
 		ws.reconnectionHandlerMu.Unlock()
-		ws.logger.Println("handleReconnectionRequests: Reconnection handler exiting")
+		ws.logger.Debug("Reconnection handler exiting",
+			"function", "handleReconnectionRequests")
 
 		// Panic recovery
 		if r := recover(); r != nil {
-			ws.logger.Printf("Panic in handleReconnectionRequests: %v", r)
+			ws.logger.Error("Panic in handleReconnectionRequests",
+				"function", "handleReconnectionRequests",
+				"panic", r)
 		}
 	}()
 
-	ws.logger.Println("handleReconnectionRequests: Reconnection handler started")
+	ws.logger.Info("Reconnection handler started",
+		"function", "handleReconnectionRequests")
 	for {
 		select {
 		case <-ws.ctx.Done():
-			ws.logger.Println("handleReconnectionRequests: Context canceled, exiting")
+			ws.logger.Info("Context canceled, exiting reconnection handler",
+				"function", "handleReconnectionRequests")
 			return
 		case err := <-ws.reconnectionTrigger:
-			ws.logger.Printf("handleReconnectionRequests: Processing reconnection request for error: %v", err)
+			ws.logger.Info("Processing reconnection request",
+				"function", "handleReconnectionRequests",
+				"error", err)
 
 			// Wait 15 seconds before attempting reconnection (gives time for cleanup)
 			// Following legacy pattern - prevents rapid reconnection spam
@@ -639,9 +743,12 @@ func (ws *SaxoWebSocketClient) handleReconnectionRequests() {
 			// Attempt reconnection
 			reconnectErr := ws.reconnectWebSocket()
 			if reconnectErr != nil {
-				ws.logger.Printf("handleReconnectionRequests: Reconnection failed: %v", reconnectErr)
+				ws.logger.Error("Reconnection failed",
+					"function", "handleReconnectionRequests",
+					"error", reconnectErr)
 			} else {
-				ws.logger.Println("handleReconnectionRequests: Reconnection completed successfully")
+				ws.logger.Info("Reconnection completed successfully",
+					"function", "handleReconnectionRequests")
 			}
 		}
 	}
@@ -653,7 +760,8 @@ func (ws *SaxoWebSocketClient) reconnectWebSocket() error {
 	ws.reconnectMu.Lock()
 	if ws.reconnectInProgress {
 		ws.reconnectMu.Unlock()
-		ws.logger.Println("reconnectWebSocket: Reconnect already in progress, skipping duplicate call")
+		ws.logger.Debug("Reconnect already in progress, skipping duplicate call",
+			"function", "reconnectWebSocket")
 		return nil
 	}
 	ws.reconnectInProgress = true
@@ -665,7 +773,8 @@ func (ws *SaxoWebSocketClient) reconnectWebSocket() error {
 		ws.reconnectMu.Unlock()
 	}()
 
-	ws.logger.Println("reconnectWebSocket: Reconnecting WebSocket...")
+	ws.logger.Info("Reconnecting WebSocket",
+		"function", "reconnectWebSocket")
 
 	// CRITICAL: Close existing connection and wait for goroutines to exit
 	if ws.conn != nil {
@@ -682,9 +791,9 @@ func (ws *SaxoWebSocketClient) reconnectWebSocket() error {
 
 			select {
 			case <-readerDoneChannel:
-				ws.logger.Println("reconnectWebSocket: Reader exited cleanly")
+				ws.logger.Info("reconnectWebSocket: Reader exited cleanly")
 			case <-time.After(5 * time.Second):
-				ws.logger.Println("reconnectWebSocket: Reader exit timeout")
+				ws.logger.Warn("reconnectWebSocket: Reader exit timeout")
 			}
 		} else {
 			ws.readerMu.Unlock()
@@ -698,9 +807,11 @@ func (ws *SaxoWebSocketClient) reconnectWebSocket() error {
 
 			select {
 			case <-processorDoneChannel:
-				ws.logger.Println("reconnectWebSocket: Processor exited cleanly")
+				ws.logger.Debug("Processor exited cleanly",
+					"function", "reconnectWebSocket")
 			case <-time.After(5 * time.Second):
-				ws.logger.Println("reconnectWebSocket: Processor exit timeout")
+				ws.logger.Warn("Processor exit timeout",
+					"function", "reconnectWebSocket")
 			}
 		} else {
 			ws.processorMu.Unlock()
@@ -715,22 +826,29 @@ func (ws *SaxoWebSocketClient) reconnectWebSocket() error {
 
 	// Wait before reconnecting (exponential backoff)
 	backoffDuration := time.Second * 10
-	ws.logger.Printf("reconnectWebSocket: Waiting %v before reconnection attempt", backoffDuration)
+	ws.logger.Info("Waiting before reconnection attempt",
+		"function", "reconnectWebSocket",
+		"backoff_duration", backoffDuration)
 	time.Sleep(backoffDuration)
 
 	// Attempt to establish new connection
 	if err := ws.connectionManager.EstablishConnection(ws.ctx); err != nil {
-		ws.logger.Printf("reconnectWebSocket: Failed to establish connection: %v", err)
+		ws.logger.Error("Failed to establish connection",
+			"function", "reconnectWebSocket",
+			"error", err)
 		return err
 	}
 
 	// Resubscribe to all previous subscriptions with new context ID and new reference IDs
 	if err := ws.subscriptionManager.HandleSubscriptions(nil); err != nil {
-		ws.logger.Printf("reconnectWebSocket: Failed to resubscribe: %v", err)
+		ws.logger.Error("Failed to resubscribe",
+			"function", "reconnectWebSocket",
+			"error", err)
 		return err
 	}
 
-	ws.logger.Println("reconnectWebSocket: Reconnection completed successfully")
+	ws.logger.Info("Reconnection completed successfully",
+		"function", "reconnectWebSocket")
 	return nil
 }
 
@@ -740,20 +858,29 @@ func (ws *SaxoWebSocketClient) handleSessionEvent(payload []byte) {
 	var session SaxoSessionCapabilities
 	err := json.Unmarshal(payload, &session)
 	if err != nil {
-		ws.logger.Printf("Failed to unmarshal session capabilities: %v", err)
+		ws.logger.Error("Failed to unmarshal session capabilities",
+			"function", "handleSessionEvent",
+			"error", err)
 		return
 	}
 
-	ws.logger.Printf("Session state: %s, TradeLevel: %s", session.State, session.Snapshot.TradeLevel)
+	ws.logger.Info("Session state received",
+		"function", "handleSessionEvent",
+		"state", session.State,
+		"trade_level", session.Snapshot.TradeLevel)
 
 	// Check if session has full trading capabilities
 	if session.Snapshot.TradeLevel != "FullTradingAndChat" {
-		ws.logger.Println("Session does not have FullTradingAndChat - attempting upgrade...")
+		ws.logger.Warn("Session does not have FullTradingAndChat, attempting upgrade",
+			"function", "handleSessionEvent",
+			"current_level", session.Snapshot.TradeLevel)
 		// Wait briefly before attempting upgrade
 		time.Sleep(5 * time.Second)
 
 		if err := ws.upgradeSessionCapabilities(); err != nil {
-			ws.logger.Printf("Failed to upgrade session capabilities: %v", err)
+			ws.logger.Error("Failed to upgrade session capabilities",
+				"function", "handleSessionEvent",
+				"error", err)
 		}
 	}
 }
@@ -805,7 +932,8 @@ func (ws *SaxoWebSocketClient) upgradeSessionCapabilities() error {
 		return fmt.Errorf("session capability upgrade failed with status: %d", resp.StatusCode)
 	}
 
-	ws.logger.Println("✅ Session upgraded to FullTradingAndChat successfully")
+	ws.logger.Info("Session upgraded to FullTradingAndChat successfully",
+		"function", "upgradeSessionCapabilities")
 	return nil
 }
 
@@ -813,14 +941,17 @@ func (ws *SaxoWebSocketClient) upgradeSessionCapabilities() error {
 // Returns the time until token expiry
 // Following legacy broker_websocket.go pattern (lines 213-261)
 func (c *SaxoWebSocketClient) startTokenRefreshTimer() time.Duration {
-	c.logger.Println("startTokenRefreshTimer: Setting up token refresh timer")
+	c.logger.Debug("Setting up token refresh timer",
+		"function", "startTokenRefreshTimer")
 
 	// Get current token to check expiry
 	// CRITICAL: We can't call getValidToken as that's in oauth package
 	// Instead, we rely on authClient being authenticated before WebSocket connection
 	accessToken, err := c.authClient.GetAccessToken()
 	if err != nil {
-		c.logger.Printf("startTokenRefreshTimer: Failed to get access token: %v", err)
+		c.logger.Error("Failed to get access token",
+			"function", "startTokenRefreshTimer",
+			"error", err)
 		return -1 * time.Second
 	}
 
@@ -828,7 +959,9 @@ func (c *SaxoWebSocketClient) startTokenRefreshTimer() time.Duration {
 	// For now, assume standard 20-minute expiry from connection time
 	// TODO: Enhance AuthClient interface to expose token expiry time
 	expiryTime := 20 * time.Minute
-	c.logger.Printf("startTokenRefreshTimer: Token expires in %s (estimated)", expiryTime)
+	c.logger.Debug("Token expiry estimated",
+		"function", "startTokenRefreshTimer",
+		"expiry_time", expiryTime)
 
 	// Stop any existing timer before creating a new one
 	if c.tokenRefreshTimer != nil {
@@ -839,7 +972,8 @@ func (c *SaxoWebSocketClient) startTokenRefreshTimer() time.Duration {
 			default:
 			}
 		}
-		c.logger.Println("startTokenRefreshTimer: Stopped existing token refresh timer")
+		c.logger.Debug("Stopped existing token refresh timer",
+			"function", "startTokenRefreshTimer")
 	}
 
 	// Calculate when to fire: 2 minutes before token expires
@@ -847,17 +981,21 @@ func (c *SaxoWebSocketClient) startTokenRefreshTimer() time.Duration {
 	fireIn := expiryTime - 2*time.Minute
 	if fireIn < 0 {
 		fireIn = 30 * time.Second // Token expires very soon, try again in 30s
-		c.logger.Printf("startTokenRefreshTimer: WARNING - Token expires in less than 2 minutes, scheduling immediate retry")
+		c.logger.Warn("Token expires in less than 2 minutes, scheduling immediate retry",
+			"function", "startTokenRefreshTimer")
 	}
 
 	// Create timer that will call refreshTokenAndReschedule
 	// Following legacy pattern: time.AfterFunc with method reference
 	c.tokenRefreshTimer = time.AfterFunc(fireIn, c.refreshTokenAndReschedule)
-	c.logger.Printf("startTokenRefreshTimer: Timer set to fire in %s (2 minutes before token expiry)", fireIn)
+	c.logger.Debug("Timer set to fire before token expiry",
+		"function", "startTokenRefreshTimer",
+		"fire_in", fireIn)
 
 	// Verify we have a valid token
 	if len(accessToken) == 0 {
-		c.logger.Println("startTokenRefreshTimer: WARNING - Access token is empty")
+		c.logger.Warn("Access token is empty",
+			"function", "startTokenRefreshTimer")
 		return -1 * time.Second
 	}
 
@@ -871,7 +1009,9 @@ func (c *SaxoWebSocketClient) refreshTokenAndReschedule() {
 	// Following legacy pattern with defer
 	defer func() {
 		if r := recover(); r != nil {
-			c.logger.Printf("Panic in refreshTokenAndReschedule: %v", r)
+			c.logger.Error("Panic in refreshTokenAndReschedule",
+				"function", "refreshTokenAndReschedule",
+				"panic", r)
 			// Even on panic, try to reschedule
 			c.scheduleNextRefresh()
 			return
@@ -880,30 +1020,37 @@ func (c *SaxoWebSocketClient) refreshTokenAndReschedule() {
 		c.scheduleNextRefresh()
 	}()
 
-	c.logger.Println("refreshTokenAndReschedule: Timer fired, checking if refresh needed")
+	c.logger.Debug("Timer fired, checking if refresh needed",
+		"function", "refreshTokenAndReschedule")
 
 	// Check if WebSocket connection exists
 	// Following legacy pattern: if ws.Connection == nil (line 293)
 	if c.conn == nil {
-		c.logger.Println("refreshTokenAndReschedule: No WebSocket connection to reauthorize")
+		c.logger.Debug("No WebSocket connection to reauthorize",
+			"function", "refreshTokenAndReschedule")
 		return // Still reschedules via defer
 	}
 
 	// Check if we have a context ID
 	if c.contextID == "" {
-		c.logger.Println("refreshTokenAndReschedule: No context ID available")
+		c.logger.Debug("No context ID available",
+			"function", "refreshTokenAndReschedule")
 		return
 	}
 
 	// Perform the token refresh via WebSocket reauthorization
 	// Following legacy pattern: ws.reAuthoriseWebSocket() (line 300)
-	c.logger.Println("refreshTokenAndReschedule: Attempting to reauthorize WebSocket connection")
+	c.logger.Info("Attempting to reauthorize WebSocket connection",
+		"function", "refreshTokenAndReschedule")
 	err := c.authClient.ReauthorizeWebSocket(context.Background(), c.contextID)
 	if err != nil {
-		c.logger.Printf("refreshTokenAndReschedule: Reauthorization failed: %v", err)
+		c.logger.Error("Reauthorization failed",
+			"function", "refreshTokenAndReschedule",
+			"error", err)
 		return
 	}
-	c.logger.Println("refreshTokenAndReschedule: Token refreshed successfully")
+	c.logger.Info("Token refreshed successfully",
+		"function", "refreshTokenAndReschedule")
 }
 
 // scheduleNextRefresh calculates when the next refresh should occur and schedules it
@@ -920,18 +1067,24 @@ func (c *SaxoWebSocketClient) scheduleNextRefresh() {
 	// If token expires in less than 2 minutes, try again soon
 	if nextFire < 0 {
 		nextFire = 30 * time.Second
-		c.logger.Printf("scheduleNextRefresh: Token expires soon, will retry in 30s")
+		c.logger.Warn("Token expires soon, will retry in 30s",
+			"function", "scheduleNextRefresh")
 	}
 
 	// Reset the timer
 	// Following legacy pattern: ws.tokenRefreshTimer.Reset(nextFire)
 	if c.tokenRefreshTimer != nil {
 		c.tokenRefreshTimer.Reset(nextFire)
-		c.logger.Printf("scheduleNextRefresh: Timer rescheduled to fire in %s", nextFire)
+		c.logger.Debug("Timer rescheduled",
+			"function", "scheduleNextRefresh",
+			"next_fire", nextFire)
 	} else {
 		// Timer was nil (shouldn't happen, but handle it)
-		c.logger.Println("scheduleNextRefresh: WARNING - Timer was nil, creating new timer")
+		c.logger.Warn("Timer was nil, creating new timer",
+			"function", "scheduleNextRefresh")
 		c.tokenRefreshTimer = time.AfterFunc(nextFire, c.refreshTokenAndReschedule)
-		c.logger.Printf("scheduleNextRefresh: New timer created to fire in %s", nextFire)
+		c.logger.Debug("New timer created",
+			"function", "scheduleNextRefresh",
+			"next_fire", nextFire)
 	}
 }

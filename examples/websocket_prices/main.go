@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,32 +15,32 @@ import (
 
 func main() {
 	// Create a logger
-	logger := log.New(os.Stdout, "[WEBSOCKET-EXAMPLE] ", log.LstdFlags)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	logger.Println("=== Saxo Adapter - WebSocket Price Subscription Example ===")
-	logger.Println("This example demonstrates broker-agnostic real-time data streaming")
-	logger.Println("using the generic WebSocketClient interface")
+	logger.Info("=== Saxo Adapter - WebSocket Price Subscription Example ===")
+	logger.Info("This example demonstrates broker-agnostic real-time data streaming")
+	logger.Info("using the generic WebSocketClient interface")
 
 	// Step 1: Create auth client
-	logger.Println("Creating authentication client...")
+	logger.Info("Creating authentication client...")
 	var authClient saxo.AuthClient
 	var err error
 	authClient, err = saxo.CreateSaxoAuthClient(logger)
 	if err != nil {
-		logger.Fatalf("Failed to create auth client: %v", err)
+		logger.Error("Failed to create auth client: %v", "error", err); os.Exit(1)
 	}
 
 	// Step 2: Authenticate using generic AuthClient interface
 	ctx := context.Background()
-	logger.Println("Authenticating...")
+	logger.Info("Authenticating...")
 	if err := authClient.Login(ctx); err != nil {
-		logger.Fatalf("Authentication failed: %v", err)
+		logger.Error("Authentication failed: %v", "error", err); os.Exit(1)
 	}
-	logger.Println("✅ Authenticated successfully")
-	logger.Println()
+	logger.Info("✅ Authenticated successfully")
+	logger.Info("")
 
 	// Step 3: Create WebSocket client using generic interface
-	logger.Println("Creating websocket client...")
+	logger.Info("Creating websocket client...")
 
 	// Note: We create using websocket package, but use via saxo.WebSocketClient interface
 	wsClient := saxo.WebSocketClient(websocket.NewSaxoWebSocketClient(
@@ -51,13 +51,13 @@ func main() {
 	))
 
 	// Step 4: Connect using generic WebSocketClient.Connect()
-	logger.Println("Connecting to WebSocket...")
+	logger.Info("Connecting to WebSocket...")
 	if err := wsClient.Connect(ctx); err != nil {
-		logger.Fatalf("WebSocket connection failed: %v", err)
+		logger.Error("WebSocket connection failed: %v", "error", err); os.Exit(1)
 	}
 	defer wsClient.Close()
-	logger.Println("✅ WebSocket connected successfully")
-	logger.Println()
+	logger.Info("✅ WebSocket connected successfully")
+	logger.Info("")
 
 	// Step 5: Subscribe to price feeds using generic interface method
 	// Using instrument IDs for common FX pairs:
@@ -65,18 +65,18 @@ func main() {
 	//	21 = EURUSD, 31 = USDJPY, 1 = GBPUSD
 	instruments := []string{"21", "31", "1"}
 
-	logger.Println("Subscribing to price feeds:")
-	logger.Println("  - EURUSD (ID 21)")
-	logger.Println("  - USDJPY (ID 31)")
-	logger.Println("  - GBPUSD (ID 1)")
+	logger.Info("Subscribing to price feeds:")
+	logger.Info("  - EURUSD (ID 21)")
+	logger.Info("  - USDJPY (ID 31)")
+	logger.Info("  - GBPUSD (ID 1)")
 
 	// Generic interface method - same for all brokers!
 	// Using "FxSpot" since these are FX pairs (EURUSD, USDJPY, GBPUSD)
 	if err := wsClient.SubscribeToPrices(ctx, instruments, "FxSpot"); err != nil {
-		logger.Fatalf("Price subscription failed: %v", err)
+		logger.Error("Price subscription failed: %v", "error", err); os.Exit(1)
 	}
-	logger.Println("✅ Subscribed to price feeds")
-	logger.Println()
+	logger.Info("✅ Subscribed to price feeds")
+	logger.Info("")
 
 	// Step 6: Get the price update channel
 	// Returns generic <-chan saxo.PriceUpdate
@@ -87,8 +87,8 @@ func main() {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	// Step 8: Listen to price updates
-	logger.Println("📊 Listening to real-time prices... (Press Ctrl+C to stop)")
-	logger.Println()
+	logger.Info("📊 Listening to real-time prices... (Press Ctrl+C to stop)")
+	logger.Info("")
 	fmt.Println("UIC        | Bid      | Ask      | Spread   | Time")
 	fmt.Println("-----------|----------|----------|----------|---------------------")
 
@@ -117,14 +117,14 @@ func main() {
 			priceCount[price.Uic]++
 
 		case <-sigChan:
-			logger.Println()
-			logger.Println("⚠️  Received interrupt signal, shutting down...")
+			logger.Info("")
+			logger.Info("⚠️  Received interrupt signal, shutting down...")
 			printStats(logger, priceCount)
 			return
 
 		case <-timeout:
-			logger.Println()
-			logger.Println("⏱️  30-second timeout reached, shutting down...")
+			logger.Info("")
+			logger.Info("⏱️  30-second timeout reached, shutting down...")
 			printStats(logger, priceCount)
 			return
 		}
@@ -132,9 +132,9 @@ func main() {
 }
 
 // printStats displays statistics about received price updates
-func printStats(logger *log.Logger, priceCount map[int]int) {
-	logger.Println()
-	logger.Println("=== Price Update Statistics ===")
+func printStats(logger *slog.Logger, priceCount map[int]int) {
+	logger.Info("")
+	logger.Info("=== Price Update Statistics ===")
 
 	total := 0
 	for uic, count := range priceCount {
@@ -143,12 +143,12 @@ func printStats(logger *log.Logger, priceCount map[int]int) {
 	}
 
 	fmt.Printf("  Total: %d updates\n", total)
-	logger.Println()
-	logger.Println("=== WebSocket Price Subscription Example Complete ===")
-	logger.Println()
-	logger.Println("Key Takeaways:")
-	logger.Println("  - WebSocketClient is a generic, broker-agnostic interface")
-	logger.Println("  - PriceUpdate uses native broker identifiers (Uic, Bid, Ask, Mid)")
-	logger.Println("  - Same code works with any broker implementing the interface")
-	logger.Println("  - Easy to mock WebSocketClient for testing")
+	logger.Info("")
+	logger.Info("=== WebSocket Price Subscription Example Complete ===")
+	logger.Info("")
+	logger.Info("Key Takeaways:")
+	logger.Info("  - WebSocketClient is a generic, broker-agnostic interface")
+	logger.Info("  - PriceUpdate uses native broker identifiers (Uic, Bid, Ask, Mid)")
+	logger.Info("  - Same code works with any broker implementing the interface")
+	logger.Info("  - Easy to mock WebSocketClient for testing")
 }
