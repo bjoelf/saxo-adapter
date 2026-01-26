@@ -187,12 +187,15 @@ type LiveOrder struct {
 	OrderAmountType  string
 }
 
-// RelatedOrder represents OCO related order
+// RelatedOrder represents OCO/IfDone related order
+// Used in both HTTP responses (LiveOrder.RelatedOrders) and WebSocket updates (OrderUpdate.RelatedOpenOrders)
 type RelatedOrder struct {
-	OrderID       string
-	OpenOrderType string
-	OrderPrice    float64
-	Status        string
+	OrderID       string  `json:"OrderId"`
+	OpenOrderType string  `json:"OpenOrderType"` // "Limit", "StopIfTraded", "Stop"
+	OrderPrice    float64 `json:"OrderPrice"`
+	Amount        float64 `json:"Amount,omitempty"` // WebSocket includes this
+	Status        string  `json:"Status"`
+	MetaDeleted   *bool   `json:"__meta_deleted,omitempty"` // WebSocket deletion marker
 }
 
 // PriceUpdate represents a price update from market data
@@ -271,11 +274,27 @@ type MarginOverview = SaxoMarginOverview
 type ClientInfo = SaxoClientInfo
 
 // OrderUpdate represents real-time order status changes
+// Enhanced to handle both Phase 1 (entry with RelatedOpenOrders) and Phase 2 (flat structure)
+// Following legacy pivot-web/strategy_manager/streaming_orders.go:13-75
 type OrderUpdate struct {
-	OrderId    string    `json:"order_id"`
-	Status     string    `json:"status"`
-	FilledSize float64   `json:"filled_size"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	// Core fields (always present)
+	OrderId    string    `json:"OrderId"`
+	Status     string    `json:"Status,omitempty"`
+	FilledSize float64   `json:"FilledAmount,omitempty"`
+	UpdatedAt  time.Time `json:"-"` // Set internally, not from JSON
+
+	// Phase 1 & 2 tracking fields
+	OpenOrderType string  `json:"OpenOrderType,omitempty"` // "StopLimit", "Limit", "StopIfTraded", "Stop"
+	OrderPrice    float64 `json:"Price,omitempty"`
+	Uic           *int    `json:"Uic,omitempty"`
+	Amount        *int    `json:"Amount,omitempty"`
+
+	// Phase 1: Nested structure (entry order with related exit orders)
+	// Following legacy pivot-web/strategy_manager/streaming_orders.go:66-70
+	RelatedOpenOrders []RelatedOrder `json:"RelatedOpenOrders,omitempty"`
+
+	// Order deletion marker (Phase 2: when entry fills)
+	MetaDeleted *bool `json:"__meta_deleted,omitempty"`
 }
 
 // PortfolioUpdate represents real-time balance and position changes

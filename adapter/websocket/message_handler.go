@@ -160,42 +160,54 @@ func (mh *MessageHandler) handlePriceUpdate(payload []byte) error {
 }
 
 // handleOrderUpdate processes order status messages following legacy order coordination patterns
+// CRITICAL: Saxo sends order updates as JSON ARRAY, not single object
+// Legacy: pivot-web/strategy_manager/streaming_orders.go:82 - var streamingOrders []StreamingOrders
+// Following same pattern as handlePriceUpdate which correctly uses array
 func (mh *MessageHandler) handleOrderUpdate(payload []byte) error {
 	mh.client.logger.Debug("Order update received",
 		"function", "handleOrderUpdate",
 		"payload_size", len(payload))
 
-	// Parse JSON payload
-	var orderData map[string]interface{}
-	if err := json.Unmarshal(payload, &orderData); err != nil {
+	// Parse JSON payload AS ARRAY (matching legacy pattern)
+	var orderDataArray []map[string]interface{}
+	if err := json.Unmarshal(payload, &orderDataArray); err != nil {
 		return fmt.Errorf("failed to unmarshal order data: %w", err)
 	}
 
-	// Convert to OrderUpdate
-	orderUpdate, err := mh.parseOrderData(orderData)
-	if err != nil {
-		return fmt.Errorf("failed to parse order data: %w", err)
-	}
+	// Process each order update in the array
+	for _, orderData := range orderDataArray {
+		// Convert to OrderUpdate
+		orderUpdate, err := mh.parseOrderData(orderData)
+		if err != nil {
+			// Log error but continue with other orders
+			mh.client.logger.Warn("Failed to parse order data, skipping",
+				"function", "handleOrderUpdate",
+				"error", err)
+			continue
+		}
 
-	// Send to channel (non-blocking)
-	select {
-	case mh.client.orderUpdateChan <- *orderUpdate:
-		mh.client.logger.Debug("Order update sent",
-			"function", "handleOrderUpdate",
-			"order_id", orderUpdate.OrderId,
-			"status", orderUpdate.Status)
-	default:
-		mh.client.logger.Warn("Order update channel full, dropping update",
-			"function", "handleOrderUpdate",
-			"order_id", orderUpdate.OrderId)
+		// Send to channel (non-blocking)
+		select {
+		case mh.client.orderUpdateChan <- *orderUpdate:
+			mh.client.logger.Debug("Order update sent",
+				"function", "handleOrderUpdate",
+				"order_id", orderUpdate.OrderId,
+				"status", orderUpdate.Status)
+		default:
+			mh.client.logger.Warn("Order update channel full, dropping update",
+				"function", "handleOrderUpdate",
+				"order_id", orderUpdate.OrderId)
+		}
 	}
 
 	return nil
 }
 
 // parseOrderData extracts order information from Saxo streaming format
+// Handles both Phase 1 (entry with RelatedOpenOrders) and Phase 2 (flat structure)
+// Following legacy pivot-web/strategy_manager/streaming_orders.go:13-75 StreamingOrders struct
 func (mh *MessageHandler) parseOrderData(orderData map[string]interface{}) (*saxo.OrderUpdate, error) {
-	// Extract order ID
+	// Extract order ID (required)
 	orderIdRaw, exists := orderData["OrderId"]
 	if !exists {
 		return nil, fmt.Errorf("missing OrderId in order data")
@@ -203,26 +215,94 @@ func (mh *MessageHandler) parseOrderData(orderData map[string]interface{}) (*sax
 
 	orderId := fmt.Sprintf("%v", orderIdRaw)
 
-	// Extract order status following legacy order management patterns
-	status, exists := orderData["Status"].(string)
-	if !exists {
-		return nil, fmt.Errorf("missing Status in order data")
+	orderUpdate := &saxo.OrderUpdate{
+		OrderId:   orderId,
+		UpdatedAt: time.Now(),
+	}
+
+	// Extract order status (may be missing in some updates)
+	if status, exists := orderData["Status"].(string); exists {
+		orderUpdate.Status = status
 	}
 
 	// Extract filled size if available
-	filledSize := 0.0
 	if filled, exists := orderData["FilledAmount"]; exists {
 		if filledFloat, err := mh.convertToFloat64(filled); err == nil {
-			filledSize = filledFloat
+			orderUpdate.FilledSize = filledFloat
 		}
 	}
 
-	return &saxo.OrderUpdate{
-		OrderId:    orderId,
-		Status:     status,
-		FilledSize: filledSize,
-		UpdatedAt:  time.Now(),
-	}, nil
+	// Extract OpenOrderType (Phase 1 & 2)
+	if openOrderType, exists := orderData["OpenOrderType"].(string); exists {
+		orderUpdate.OpenOrderType = openOrderType
+	}
+
+	// Extract OrderPrice (Price field in JSON)
+	if price, exists := orderData["Price"]; exists {
+		if priceFloat, err := mh.convertToFloat64(price); err == nil {
+			orderUpdate.OrderPrice = priceFloat
+		}
+	}
+
+	// Extract Uic
+	if uic, exists := orderData["Uic"]; exists {
+		if uicFloat, err := mh.convertToFloat64(uic); err == nil {
+			uicInt := int(uicFloat)
+			orderUpdate.Uic = &uicInt
+		}
+	}
+
+	// Extract Amount
+	if amount, exists := orderData["Amount"]; exists {
+		if amountFloat, err := mh.convertToFloat64(amount); err == nil {
+			amountInt := int(amountFloat)
+			orderUpdate.Amount = &amountInt
+		}
+	}
+
+	// Extract __meta_deleted (Phase 2: order cancellation/deletion)
+	if metaDeleted, exists := orderData["__meta_deleted"].(bool); exists {
+		orderUpdate.MetaDeleted = &metaDeleted
+	}
+
+	// Phase 1: Extract RelatedOpenOrders (entry order with nested exit orders)
+	if relatedOrdersRaw, exists := orderData["RelatedOpenOrders"]; exists {
+		if relatedOrdersArray, ok := relatedOrdersRaw.([]interface{}); ok {
+			for _, relatedRaw := range relatedOrdersArray {
+				if relatedMap, ok := relatedRaw.(map[string]interface{}); ok {
+					relatedOrder := saxo.RelatedOrder{}
+
+					// Extract related order fields
+					if relOrderId, exists := relatedMap["OrderId"]; exists {
+						relatedOrder.OrderID = fmt.Sprintf("%v", relOrderId)
+					}
+					if openOrderType, exists := relatedMap["OpenOrderType"].(string); exists {
+						relatedOrder.OpenOrderType = openOrderType
+					}
+					if orderPrice, exists := relatedMap["OrderPrice"]; exists {
+						if priceFloat, err := mh.convertToFloat64(orderPrice); err == nil {
+							relatedOrder.OrderPrice = priceFloat
+						}
+					}
+					if amount, exists := relatedMap["Amount"]; exists {
+						if amountFloat, err := mh.convertToFloat64(amount); err == nil {
+							relatedOrder.Amount = amountFloat
+						}
+					}
+					if status, exists := relatedMap["Status"].(string); exists {
+						relatedOrder.Status = status
+					}
+					if metaDeleted, exists := relatedMap["__meta_deleted"].(bool); exists {
+						relatedOrder.MetaDeleted = &metaDeleted
+					}
+
+					orderUpdate.RelatedOpenOrders = append(orderUpdate.RelatedOpenOrders, relatedOrder)
+				}
+			}
+		}
+	}
+
+	return orderUpdate, nil
 }
 
 // handlePortfolioUpdate processes portfolio balance messages following legacy portfolio coordination patterns
