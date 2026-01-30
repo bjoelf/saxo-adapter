@@ -53,6 +53,10 @@ type SaxoWebSocketClient struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	// MEMORY LEAK FIX: Track if channels have been closed to prevent double-close panic
+	channelsClosed bool
+	channelsMu     sync.Mutex
+
 	// NEW: Goroutine lifecycle tracking (CRITICAL for clean shutdown)
 	// Following legacy pattern from broker_websocket.go
 	readerRunning              bool          // Tracks if reader goroutine is active
@@ -690,8 +694,56 @@ func (ws *SaxoWebSocketClient) Close() error {
 		}
 	}
 
+	// CRITICAL MEMORY LEAK FIX: Stop token refresh timer to prevent it firing after close
+	// Following legacy broker_websocket.go cleanup pattern
+	if ws.tokenRefreshTimer != nil {
+		if !ws.tokenRefreshTimer.Stop() {
+			// Timer already fired, drain the channel
+			select {
+			case <-ws.tokenRefreshTimer.C:
+			default:
+			}
+		}
+		ws.tokenRefreshTimer = nil
+		ws.logger.Info("Token refresh timer stopped",
+			"function", "Close")
+	}
+
 	// Delegate to connection manager for actual connection cleanup
-	return ws.connectionManager.CloseConnection()
+	err := ws.connectionManager.CloseConnection()
+
+	// CRITICAL MEMORY LEAK FIX: Close all channels to allow garbage collection
+	// This MUST be done AFTER all goroutines have exited to prevent panic
+	// Closing channels signals to any remaining readers that no more data will arrive
+	// and allows Go's GC to reclaim the channel buffers (100 elements each)
+	ws.channelsMu.Lock()
+	defer ws.channelsMu.Unlock()
+
+	if ws.channelsClosed {
+		ws.logger.Debug("Channels already closed, skipping",
+			"function", "Close")
+		return err
+	}
+
+	ws.logger.Info("Closing WebSocket channels to release memory",
+		"function", "Close")
+
+	// Close main data channels (safe because goroutines have exited)
+	close(ws.priceUpdateChan)
+	close(ws.orderUpdateChan)
+	close(ws.portfolioUpdateChan)
+
+	// Close internal coordination channels (safe because goroutines have exited)
+	close(ws.incomingMessages)
+	close(ws.connectionErrors)
+	close(ws.reconnectionTrigger)
+
+	ws.channelsClosed = true
+
+	ws.logger.Info("All WebSocket channels closed, memory released",
+		"function", "Close")
+
+	return err
 }
 
 // handleReconnectionRequests runs in a separate goroutine to handle reconnection requests
@@ -831,8 +883,15 @@ func (ws *SaxoWebSocketClient) reconnectWebSocket() error {
 		"backoff_duration", backoffDuration)
 	time.Sleep(backoffDuration)
 
+	// CRITICAL FIX: Create fresh context for reconnection attempt
+	// The old ws.ctx was cancelled above to stop goroutines
+	// EstablishConnection needs a non-cancelled context for DNS lookup and connection
+	reconnectCtx := context.Background()
+	ws.logger.Debug("Using fresh context for reconnection",
+		"function", "reconnectWebSocket")
+
 	// Attempt to establish new connection
-	if err := ws.connectionManager.EstablishConnection(ws.ctx); err != nil {
+	if err := ws.connectionManager.EstablishConnection(reconnectCtx); err != nil {
 		ws.logger.Error("Failed to establish connection",
 			"function", "reconnectWebSocket",
 			"error", err)
