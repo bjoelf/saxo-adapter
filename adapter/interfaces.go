@@ -9,6 +9,13 @@ import (
 // ============================================================================
 // INTERFACES - These define the contracts this adapter implements
 // ============================================================================
+// INTERFACE SEGREGATION: Focused interfaces enable multi-broker support
+// - Brokers implement only what they support (e.g., IB without historical data)
+// - Services depend on specific interfaces for better testability
+// - Composite BrokerClient maintains backward compatibility
+//
+// See: https://github.com/bjoelf/pivot-web2/blob/main/docs/api/INTERFACE_REMAPPING_TLDR.md
+// ============================================================================
 
 // AuthClient defines OAuth authentication interface for broker connections
 type AuthClient interface {
@@ -28,39 +35,97 @@ type AuthClient interface {
 	ExchangeCodeForToken(ctx context.Context, code string, provider string) error
 }
 
-// BrokerClient defines the interface for direct broker operations
-// This is a generic, broker-agnostic interface that any broker can implement
-type BrokerClient interface {
-	// Core trading operations
+// ============================================================================
+// SEGREGATED INTERFACES - Enable incomplete implementations
+// ============================================================================
+
+// OrderClient defines order management operations
+// All brokers that support trading must implement this interface
+type OrderClient interface {
+	// Order placement and modification
 	PlaceOrder(ctx context.Context, req OrderRequest) (*OrderResponse, error)
-	DeleteOrder(ctx context.Context, orderID string) error
 	ModifyOrder(ctx context.Context, req OrderModificationRequest) (*OrderResponse, error)
-	GetOrderStatus(ctx context.Context, orderID string) (*OrderStatus, error)
+	DeleteOrder(ctx context.Context, orderID string) error
 	CancelOrder(ctx context.Context, req CancelOrderRequest) error
-	ClosePosition(ctx context.Context, req ClosePositionRequest) (*OrderResponse, error)
 
-	// Order and position queries
+	// Order queries
+	GetOrderStatus(ctx context.Context, orderID string) (*OrderStatus, error)
 	GetOpenOrders(ctx context.Context) ([]LiveOrder, error)
-	GetOpenPositions(ctx context.Context) (*OpenPositionsResponse, error)
-	GetNetPositions(ctx context.Context) (*NetPositionsResponse, error)
-	GetClosedPositions(ctx context.Context) (*ClosedPositionsResponse, error)
 
-	// Account and balance queries - generic, broker-agnostic
-	GetBalance(ctx context.Context) (*Balance, error)
+	// Position closing (market order to close)
+	ClosePosition(ctx context.Context, req ClosePositionRequest) (*OrderResponse, error)
+}
+
+// AccountClient defines account and balance operations
+// All brokers must implement this interface
+type AccountClient interface {
+	// Account information
 	GetAccounts(ctx context.Context) (*Accounts, error)
-	GetMarginOverview(ctx context.Context, clientKey string) (*MarginOverview, error)
+	GetAccountInfo(ctx context.Context) (*AccountInfo, error)
 	GetClientInfo(ctx context.Context) (*ClientInfo, error)
-	GetTradingSchedule(ctx context.Context, params TradingScheduleParams) (*TradingSchedule, error)
 
-	// Instrument search and metadata (Tier 2 - The Usual Suspects)
+	// Balance and margin
+	GetBalance(ctx context.Context) (*Balance, error)
+	GetMarginOverview(ctx context.Context, clientKey string) (*MarginOverview, error)
+}
+
+// MarketDataClient defines market data operations
+// OPTIONAL: Not all brokers provide historical data (e.g., Interactive Brokers)
+// Services should check capability: if mdClient, ok := broker.(MarketDataClient); ok { ... }
+type MarketDataClient interface {
+	// Instrument pricing (HTTP REST - for on-demand queries)
+	GetInstrumentPrice(ctx context.Context, instrument Instrument) (*PriceData, error)
+
+	// Historical data (OHLC bars)
+	// Note: IB does not provide this - use Saxo or third-party data vendor
+	GetHistoricalData(ctx context.Context, instrument Instrument, days int) ([]HistoricalDataPoint, error)
+
+	// Trading schedule (market hours)
+	GetTradingSchedule(ctx context.Context, params TradingScheduleParams) (*TradingSchedule, error)
+}
+
+// PositionClient defines position query operations
+// All brokers that support trading must implement this interface
+type PositionClient interface {
+	GetOpenPositions(ctx context.Context) (*OpenPositionsResponse, error)
+	GetClosedPositions(ctx context.Context) (*ClosedPositionsResponse, error)
+	GetNetPositions(ctx context.Context) (*NetPositionsResponse, error)
+}
+
+// InstrumentClient defines instrument search and metadata operations
+// OPTIONAL: Brokers may have different instrument lookup capabilities
+type InstrumentClient interface {
+	// Instrument search and metadata
 	SearchInstruments(ctx context.Context, params InstrumentSearchParams) ([]Instrument, error)
 	GetInstrumentDetails(ctx context.Context, uics []int) ([]InstrumentDetail, error)
 	GetInstrumentPrices(ctx context.Context, uics []int, fieldGroups string, assetType string) ([]InstrumentPriceInfo, error)
+}
 
-	// Market data operations (consolidated from MarketDataClient)
-	GetInstrumentPrice(ctx context.Context, instrument Instrument) (*PriceData, error)
-	GetHistoricalData(ctx context.Context, instrument Instrument, days int) ([]HistoricalDataPoint, error)
-	GetAccountInfo(ctx context.Context) (*AccountInfo, error)
+// ============================================================================
+// COMPOSITE INTERFACE - Backward compatibility
+// ============================================================================
+// BrokerClient combines all focused interfaces for backward compatibility.
+// Existing code using BrokerClient continues to work unchanged.
+//
+// New implementations can implement specific interfaces based on capabilities:
+// - Saxo: Implements all interfaces (OrderClient + AccountClient + MarketDataClient + PositionClient + InstrumentClient)
+// - IB: May implement OrderClient + AccountClient + PositionClient (without MarketDataClient)
+// - Data vendor: May implement only MarketDataClient
+//
+// Example service migration:
+//   Old: func NewTradingService(broker BrokerClient)
+//   New: func NewTradingService(orders OrderClient, accounts AccountClient, positions PositionClient)
+// ============================================================================
+
+// BrokerClient defines the complete interface for broker operations (composite)
+// This is the full interface that Saxo adapter implements.
+// Future brokers may implement only a subset (e.g., IB without MarketDataClient).
+type BrokerClient interface {
+	OrderClient
+	AccountClient
+	MarketDataClient
+	PositionClient
+	InstrumentClient
 }
 
 // WebSocketClient defines real-time data streaming interface
