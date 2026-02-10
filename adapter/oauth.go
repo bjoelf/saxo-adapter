@@ -193,14 +193,27 @@ func (sac *SaxoAuthClient) Login(ctx context.Context) error {
 
 // Logout implements AuthClient
 func (sac *SaxoAuthClient) Logout() error {
-	sac.tokenMutex.Lock()
-	defer sac.tokenMutex.Unlock()
+	sac.logger.Info("Starting logout process")
 
+	// Stop token refresh goroutine
+	sac.tokenMutex.Lock()
+	if sac.tokenUpdated != nil {
+		close(sac.tokenUpdated)
+		sac.tokenUpdated = nil
+		sac.logger.Info("Token refresh goroutine stopped")
+	}
 	sac.currentToken = TokenInfo{}
+	sac.tokenMutex.Unlock()
 
 	// Clear from file storage
 	filename := sac.getTokenFilename("saxo")
-	return sac.tokenStorage.DeleteToken(filename)
+	if err := sac.tokenStorage.DeleteToken(filename); err != nil {
+		sac.logger.Warn("Failed to delete token file", "error", err)
+		// Continue with logout even if file deletion fails
+	}
+
+	sac.logger.Info("Logout completed successfully")
+	return nil
 }
 
 // RefreshToken implements AuthClient with legacy logic
