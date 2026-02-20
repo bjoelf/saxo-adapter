@@ -132,43 +132,6 @@ func (sbc *SaxoBrokerClient) PlaceOrder(ctx context.Context, req OrderRequest) (
 	return genericResp, nil
 }
 
-// DeleteOrder implements BrokerClient.DeleteOrder
-func (sbc *SaxoBrokerClient) DeleteOrder(ctx context.Context, orderID string) error {
-	sbc.logger.Info("Cancelling order",
-		"function", "DeleteOrder",
-		"order_id", orderID)
-
-	// Check authentication
-	if !sbc.authClient.IsAuthenticated() {
-		return fmt.Errorf("not authenticated with broker")
-	}
-
-	// Create HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "DELETE",
-		sbc.baseURL+"/trade/v2/orders/"+orderID, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create HTTP request: %w", err)
-	}
-
-	// Set headers
-	// Execute request with OAuth2 auto-refresh
-	resp, err := sbc.doRequest(ctx, httpReq)
-	if err != nil {
-		return fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Handle response
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return sbc.handleErrorResponse(resp)
-	}
-
-	sbc.logger.Info("Order cancelled successfully",
-		"function", "DeleteOrder",
-		"order_id", orderID)
-	return nil
-}
-
 // CancelOrder implements BrokerClient.CancelOrder
 // Uses Saxo API: DELETE /trade/v2/orders/{OrderIds}?AccountKey={AccountKey}
 func (sbc *SaxoBrokerClient) CancelOrder(ctx context.Context, req CancelOrderRequest) error {

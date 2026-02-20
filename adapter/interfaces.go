@@ -33,7 +33,6 @@ type AuthClient interface {
 type BrokerClient interface {
 	// Core trading operations
 	PlaceOrder(ctx context.Context, req OrderRequest) (*OrderResponse, error)
-	DeleteOrder(ctx context.Context, orderID string) error
 	ModifyOrder(ctx context.Context, req OrderModificationRequest) (*OrderResponse, error)
 	GetOrderStatus(ctx context.Context, orderID string) (*OrderStatus, error)
 	CancelOrder(ctx context.Context, req CancelOrderRequest) error
