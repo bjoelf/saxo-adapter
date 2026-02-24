@@ -37,6 +37,12 @@ type SaxoOrderResponse struct {
 	// Execution details
 	ExecutionPrice *float64 `json:"ExecutionPrice,omitempty"`
 	FilledAmount   *int     `json:"FilledAmount,omitempty"`
+
+	// Multi-leg order response (for complex/OCO orders)
+	Orders []struct {
+		OrderID       string `json:"OrderId"`
+		OpenOrderType string `json:"OpenOrderType"`
+	} `json:"Orders,omitempty"`
 }
 
 // SaxoOrderStatus represents current order status from Saxo
@@ -228,18 +234,18 @@ type SaxoOpenOrdersResponse struct {
 // SaxoOpenOrder represents a single open order from Saxo API
 // Complete structure matching Saxo Bank API response
 type SaxoOpenOrder struct {
-	OrderID       string  `json:"OrderId"`
-	Uic           int     `json:"Uic"`
-	BuySell       string  `json:"BuySell"`
-	Amount        float64 `json:"Amount"`
-	OrderPrice    float64 `json:"OrderPrice"`
-	OrderType     string  `json:"OpenOrderType"` // "StopIfTraded", "Limit", etc.
-	AssetType     string  `json:"AssetType"`
-	OrderTime     string  `json:"OrderTime"` // ISO 8601 format
-	Status        string  `json:"Status"`    // "Working", "Parked", etc.
-	AccountKey    string  `json:"AccountKey"`
-	ClientKey     string  `json:"ClientKey"`
-	OrderRelation string  `json:"OrderRelation"` // "StandAlone", "IfDone", "Oco"
+	OrderID       string   `json:"OrderId"`
+	Uic           int      `json:"Uic"`
+	BuySell       string   `json:"BuySell"`
+	Amount        float64  `json:"Amount"`
+	OrderPrice    *float64 `json:"OrderPrice,omitempty"` // Pointer to distinguish between 0 and missing
+	OrderType     string   `json:"OpenOrderType"`        // "StopIfTraded", "Limit", etc.
+	AssetType     string   `json:"AssetType"`
+	OrderTime     string   `json:"OrderTime"` // ISO 8601 format
+	Status        string   `json:"Status"`    // "Working", "Parked", etc.
+	AccountKey    string   `json:"AccountKey"`
+	ClientKey     string   `json:"ClientKey"`
+	OrderRelation string   `json:"OrderRelation"` // "StandAlone", "IfDone", "Oco"
 
 	// Related orders (for OCO/IfDone relationships)
 	RelatedOpenOrders []SaxoRelatedOrder `json:"RelatedOpenOrders,omitempty"`

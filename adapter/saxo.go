@@ -88,11 +88,16 @@ func (sbc *SaxoBrokerClient) PlaceOrder(ctx context.Context, req OrderRequest) (
 		return nil, fmt.Errorf("failed to convert order request: %w", err)
 	}
 
-	// Marshal request body
+	// Marshal request body (supports both single and multi-leg orders)
 	reqBody, err := json.Marshal(saxoReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
+
+	// Log request payload for debugging
+	sbc.logger.Debug("Order request payload",
+		"function", "PlaceOrder",
+		"payload", string(reqBody))
 
 	// Create HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST",
@@ -281,9 +286,11 @@ func (sbc *SaxoBrokerClient) ModifyOrder(ctx context.Context, req OrderModificat
 		return nil, fmt.Errorf("not authenticated with broker")
 	}
 
-	// Build modification payload following legacy SaxoMoveStopParams/SaxoToMarketParams pattern
+	// Build modification payload following legacy SaxoMoveStopParams pattern
+	// NOTE: OrderID must be in the body, not in the URL path (Saxo API requirement)
 	payload := map[string]interface{}{
 		"AccountKey": req.AccountKey,
+		"OrderID":    req.OrderID, // OrderID in body, not URL path!
 		"OrderType":  req.OrderType,
 		"AssetType":  req.AssetType,
 		"OrderDuration": map[string]interface{}{
@@ -302,9 +309,10 @@ func (sbc *SaxoBrokerClient) ModifyOrder(ctx context.Context, req OrderModificat
 		return nil, fmt.Errorf("failed to marshal modification request: %w", err)
 	}
 
-	// Create HTTP PATCH request following legacy PatchBrokerData pattern
+	// Create HTTP PATCH request to /trade/v2/orders (NO OrderID in path)
+	// Following legacy ModifySaxoOrder pattern
 	httpReq, err := http.NewRequestWithContext(ctx, "PATCH",
-		sbc.baseURL+"/trade/v2/orders/"+req.OrderID, bytes.NewBuffer(jsonData))
+		sbc.baseURL+"/trade/v2/orders", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
@@ -427,6 +435,14 @@ func (sbc *SaxoBrokerClient) GetOpenOrders(ctx context.Context) ([]LiveOrder, er
 		"function", "GetOpenOrders",
 		"count", len(liveOrders))
 	return liveOrders, nil
+}
+
+// derefFloat64 safely dereferences a float64 pointer, returning 0 if nil
+func derefFloat64(ptr *float64) float64 {
+	if ptr == nil {
+		return 0
+	}
+	return *ptr
 }
 
 // GetOpenPositions retrieves all open positions from Saxo API
@@ -730,47 +746,100 @@ func (sbc *SaxoBrokerClient) GetBalance(ctx context.Context) (*Balance, error) {
 
 // Private conversion methods - handle Saxo-specific format internally
 // TODO: cleanup this is final order conversion logic. Remove all other conversion code.
-func (sbc *SaxoBrokerClient) convertToSaxoOrder(req OrderRequest) (SaxoOrderRequest, error) {
-	saxoReq := SaxoOrderRequest{
-		AccountKey: req.AccountKey,           // Required account key
-		BuySell:    req.Side,                 // "Buy" or "Sell"
-		Amount:     float64(req.Size),        // Order size as float64
-		OrderType:  req.OrderType,            // "Market", "Limit", "Stop"
-		AssetType:  req.Instrument.AssetType, // Use enriched AssetType from futures.json
+func (sbc *SaxoBrokerClient) convertToSaxoOrder(req OrderRequest) (map[string]interface{}, error) {
+	// Validate enriched instrument data
+	if req.Instrument.Identifier == 0 {
+		return nil, fmt.Errorf("instrument %s is not enriched - Identifier (UIC) is missing", req.Instrument.Ticker)
+	}
+	if req.Instrument.AssetType == "" {
+		return nil, fmt.Errorf("instrument %s is missing AssetType", req.Instrument.Ticker)
+	}
+
+	// Build main order structure
+	saxoReq := map[string]interface{}{
+		"AccountKey":  req.AccountKey,
+		"Uic":         req.Instrument.Identifier,
+		"AssetType":   req.Instrument.AssetType,
+		"BuySell":     req.Side,
+		"Amount":      float64(req.Size),
+		"OrderType":   req.OrderType,
+		"ManualOrder": true,
 	}
 
 	// Set price for non-market orders
 	if req.OrderType != "Market" && req.Price > 0 {
-		saxoReq.OrderPrice = req.Price
+		saxoReq["OrderPrice"] = req.Price
 	}
 
-	// Set order duration following Saxo patterns
-	saxoReq.OrderDuration.DurationType = req.Duration
-	if req.Duration == "" {
-		saxoReq.OrderDuration.DurationType = "DayOrder" // Default
+	// Set StopLimitPrice if provided (for futures StopLimit orders)
+	if req.StopLimitPrice > 0 {
+		saxoReq["StopLimitPrice"] = req.StopLimitPrice
 	}
 
-	// Validate enriched instrument data
-	if req.Instrument.Identifier == 0 {
-		return saxoReq, fmt.Errorf("instrument %s is not enriched - Identifier (UIC) is missing. Run instrument enrichment first", req.Instrument.Ticker)
+	// Set order duration
+	duration := req.Duration
+	if duration == "" {
+		duration = "DayOrder" // Default
 	}
-	if req.Instrument.AssetType == "" {
-		return saxoReq, fmt.Errorf("instrument %s is missing AssetType. This should be loaded from futures.json", req.Instrument.Ticker)
+	saxoReq["OrderDuration"] = map[string]string{
+		"DurationType": duration,
 	}
 
-	// Use enriched UIC from instrument enrichment service
-	saxoReq.Uic = req.Instrument.Identifier
+	// Handle multi-leg orders (complex/OCO orders)
+	if len(req.RelatedOrders) > 0 {
+		relatedOrders := make([]map[string]interface{}, 0, len(req.RelatedOrders))
+
+		for _, related := range req.RelatedOrders {
+			// Per Saxo API docs: Related orders inherit AccountKey, Uic, AssetType from parent
+			relatedOrder := map[string]interface{}{
+				"BuySell":    related.Side,
+				"OrderType":  related.OrderType,
+				"OrderPrice": related.Price,
+				"OrderDuration": map[string]string{
+					"DurationType": related.Duration,
+				},
+				"ManualOrder": true,
+			}
+			relatedOrders = append(relatedOrders, relatedOrder)
+		}
+
+		// Add related orders array to main order
+		saxoReq["Orders"] = relatedOrders
+
+		sbc.logger.Debug("Building multi-leg order",
+			"main_order_type", req.OrderType,
+			"related_orders_count", len(req.RelatedOrders))
+	}
 
 	return saxoReq, nil
 }
 
 func (sbc *SaxoBrokerClient) convertFromSaxoResponse(saxoResp SaxoOrderResponse) *OrderResponse {
-	return &OrderResponse{
-		OrderID: saxoResp.OrderId,
-		Status:  saxoResp.Status,
-		//Message:   saxoResp.Message,
+	resp := &OrderResponse{
+		OrderID:   saxoResp.OrderId,
+		Status:    saxoResp.Status,
 		Timestamp: saxoResp.Timestamp,
 	}
+
+	// If this is a multi-leg order response, populate ExtendedData with related orders
+	if len(saxoResp.Orders) > 0 {
+		relatedOrders := make([]map[string]string, 0, len(saxoResp.Orders))
+		for _, order := range saxoResp.Orders {
+			relatedOrders = append(relatedOrders, map[string]string{
+				"OrderID":       order.OrderID,
+				"OpenOrderType": order.OpenOrderType,
+			})
+		}
+		resp.ExtendedData = map[string]interface{}{
+			"RelatedOrders": relatedOrders,
+		}
+
+		sbc.logger.Debug("Multi-leg order response received",
+			"main_order_id", saxoResp.OrderId,
+			"related_orders", len(saxoResp.Orders))
+	}
+
+	return resp
 }
 
 func (sbc *SaxoBrokerClient) convertFromSaxoStatus(saxoStatus SaxoOrderStatus) *OrderStatus {
@@ -821,8 +890,8 @@ func (sbc *SaxoBrokerClient) convertFromSaxoOpenOrder(saxoOrder SaxoOpenOrder) L
 		AssetType:        saxoOrder.AssetType,
 		OrderType:        saxoOrder.OrderType,
 		Amount:           saxoOrder.Amount,
-		Price:            saxoOrder.OrderPrice,
-		StopLimitPrice:   0, // TODO: Extract from order details if available
+		Price:            derefFloat64(saxoOrder.OrderPrice), // Handle pointer type
+		StopLimitPrice:   0,                                  // TODO: Extract from order details if available
 		OrderTime:        orderTime,
 		Status:           saxoOrder.Status,
 		RelatedOrders:    relatedOrders,

@@ -96,14 +96,32 @@ type Instrument struct {
 }
 
 // OrderRequest represents a broker order request
+// Supports both single-leg orders and multi-leg orders (complex/OCO)
 type OrderRequest struct {
 	Instrument Instrument
 	AccountKey string // Account identifier (required for most brokers)
 	Side       string // "Buy" or "Sell"
 	Size       int
 	Price      float64
-	OrderType  string // "Limit", "Market", "StopIfTraded", etc.
+	OrderType  string // "Limit", "Market", "StopIfTraded", "StopLimit", etc.
 	Duration   string // "GoodTillDate", "DayOrder", etc.
+
+	// Multi-leg order support (for complex/OCO orders)
+	// Related orders inherit AccountKey, Uic, and AssetType from main order
+	RelatedOrders []RelatedOrderRequest
+
+	// Optional fields for specific order types
+	StopLimitPrice float64 // For StopLimit orders (futures)
+}
+
+// RelatedOrderRequest represents a related order in multi-leg order structures
+// Used for complex orders (entry + OCO exit) and OCO orders (target + stop)
+// Per Saxo API: Related orders inherit AccountKey, Uic, AssetType from parent order
+type RelatedOrderRequest struct {
+	Side      string  // "Buy" or "Sell"
+	OrderType string  // "Limit", "StopIfTraded", etc.
+	Price     float64 // Order price
+	Duration  string  // "DayOrder", "GoodTillDate", etc.
 }
 
 // OrderResponse represents broker order response
