@@ -337,7 +337,7 @@ func (sbc *SaxoBrokerClient) ModifyOrder(ctx context.Context, req OrderModificat
 	// Check for success (200-299 status codes)
 	// Saxo typically returns 204 No Content for successful order modifications
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("HTTP %d: order modification failed", resp.StatusCode)
+		return nil, sbc.handleErrorResponse(resp)
 	}
 
 	sbc.logger.Info("Order modified successfully",
