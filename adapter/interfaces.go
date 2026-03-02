@@ -305,6 +305,7 @@ type OrderUpdate struct {
 	OrderPrice    float64 `json:"Price,omitempty"`
 	Uic           *int    `json:"Uic,omitempty"`
 	Amount        *int    `json:"Amount,omitempty"`
+	OrderRelation string  `json:"OrderRelation,omitempty"` // "IfDoneMaster", "IfDoneSlaveOco", "Oco", "StandAlone"
 
 	// Phase 1: Nested structure (entry order with related exit orders)
 	// Following legacy pivot-web/strategy_manager/streaming_orders.go:66-70
