@@ -58,7 +58,7 @@ type BrokerClient interface {
 
 	// Market data operations (consolidated from MarketDataClient)
 	GetInstrumentPrice(ctx context.Context, instrument Instrument) (*PriceData, error)
-	GetHistoricalData(ctx context.Context, instrument Instrument, days int) ([]HistoricalDataPoint, error)
+	GetHistoricalData(ctx context.Context, instrument Instrument, days int, cutoffTime time.Time) ([]HistoricalDataPoint, error)
 	GetAccountInfo(ctx context.Context) (*AccountInfo, error)
 }
 

@@ -67,7 +67,11 @@ func main() {
 	defer cancel()
 
 	days := 30
-	historicalData, err := brokerClient.GetHistoricalData(ctx, instrument, days)
+	// Use tomorrow midnight UTC as cutoff (typical for end-of-day data)
+	tomorrow := time.Now().UTC().AddDate(0, 0, 1)
+	cutoffTime := time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 0, 0, 0, 0, time.UTC)
+	
+	historicalData, err := brokerClient.GetHistoricalData(ctx, instrument, days, cutoffTime)
 	if err != nil {
 		logger.Error("Failed to fetch historical data: %v", "error", err)
 		os.Exit(1)
