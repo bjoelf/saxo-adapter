@@ -12,6 +12,7 @@ import (
 
 // tomorrowMidnightRFC3339 returns tomorrow's midnight time in RFC3339 format
 // Following legacy strategies/strategy.go TomorrowMidnightRFC3339() pattern
+// DEPRECATED: No longer used internally. Consumers should provide cutoffTime to GetHistoricalData().
 func tomorrowMidnightRFC3339() string {
 	// Calculate tomorrow's date
 	tomorrow := time.Now().UTC().AddDate(0, 0, 1)
@@ -182,11 +183,15 @@ func (sbc *SaxoBrokerClient) GetAccountInfo(ctx context.Context) (*AccountInfo, 
 
 // GetHistoricalData fetches historical OHLC data from Saxo Bank using enriched instrument data
 // Following legacy SinglePivotHistory caching pattern: cache for 1 hour per instrument
-func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument Instrument, days int) ([]HistoricalDataPoint, error) {
+// GetHistoricalData fetches historical OHLC bars for an instrument
+// Following legacy broker/broker_http.go GetSaxoHistoricBars pattern with caching
+// cutoffTime: The end time for historical data (typically next market close for the instrument)
+func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument Instrument, days int, cutoffTime time.Time) ([]HistoricalDataPoint, error) {
 	sbc.logger.Debug("Fetching historical data",
 		"function", "GetHistoricalData",
 		"ticker", instrument.Ticker,
-		"days", days)
+		"days", days,
+		"cutoff", cutoffTime.Format(time.RFC3339))
 
 	// Create cache key (identifier + days to ensure cache matches request)
 	cacheKey := fmt.Sprintf("%d_%d", instrument.Uic, days)
@@ -228,8 +233,10 @@ func (sbc *SaxoBrokerClient) GetHistoricalData(ctx context.Context, instrument I
 	// Build request URL for historical chart data using enriched UIC and AssetType
 	// Following legacy broker/broker_http.go GetSaxoHistoricBars pattern
 	// Using daily horizon (1440 minutes = 1 day), Mode=UpTo, and FieldGroups=Data
+	// cutoffTime is provided by consumer (typically next market close for instrument-specific timing)
+	cutoffStr := cutoffTime.Format(time.RFC3339)
 	requestURL := fmt.Sprintf("%s/chart/v3/charts?AssetType=%s&FieldGroups=Data&Count=%d&Horizon=1440&Mode=UpTo&Time=%s&Uic=%d",
-		sbc.baseURL, instrument.AssetType, days, tomorrowMidnightRFC3339(), instrument.Uic)
+		sbc.baseURL, instrument.AssetType, days, cutoffStr, instrument.Uic)
 
 	sbc.logger.Debug("Saxo API request",
 		"function", "GetHistoricalData",
