@@ -126,10 +126,10 @@ type RelatedOrderRequest struct {
 
 // OrderResponse represents broker order response
 type OrderResponse struct {
-	OrderID      string
-	Status       string
-	Timestamp    string
-	ExtendedData interface{} // For complex/OCO order responses
+	OrderID         string
+	Status          string
+	Timestamp       string
+	RelatedOrderIDs []string // Child order IDs in placement sequence: [0]=Target(Limit), [1]=Stop
 }
 
 // OrderModificationRequest represents order modification parameters

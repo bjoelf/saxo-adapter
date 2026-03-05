@@ -821,22 +821,20 @@ func (sbc *SaxoBrokerClient) convertFromSaxoResponse(saxoResp SaxoOrderResponse)
 		Timestamp: saxoResp.Timestamp,
 	}
 
-	// If this is a multi-leg order response, populate ExtendedData with related orders
+	// If this is a multi-leg order response, populate RelatedOrderIDs positionally.
+	// Saxo does NOT return OpenOrderType in the placement response, so positional
+	// binding is the only reliable approach.
+	// Placement order mirrors request: Orders[0]=Target(Limit), Orders[1]=Stop.
 	if len(saxoResp.Orders) > 0 {
-		relatedOrders := make([]map[string]string, 0, len(saxoResp.Orders))
+		ids := make([]string, 0, len(saxoResp.Orders))
 		for _, order := range saxoResp.Orders {
-			relatedOrders = append(relatedOrders, map[string]string{
-				"OrderID":       order.OrderID,
-				"OpenOrderType": order.OpenOrderType,
-			})
+			ids = append(ids, order.OrderID)
 		}
-		resp.ExtendedData = map[string]interface{}{
-			"RelatedOrders": relatedOrders,
-		}
+		resp.RelatedOrderIDs = ids
 
 		sbc.logger.Debug("Multi-leg order response received",
 			"main_order_id", saxoResp.OrderId,
-			"related_orders", len(saxoResp.Orders))
+			"related_order_ids", ids)
 	}
 
 	return resp
