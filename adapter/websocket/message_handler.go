@@ -180,14 +180,20 @@ func (mh *MessageHandler) handlePriceUpdate(payload []byte) error {
 // Legacy: pivot-web/strategy_manager/streaming_orders.go:82 - var streamingOrders []StreamingOrders
 // Following same pattern as handlePriceUpdate which correctly uses array
 func (mh *MessageHandler) handleOrderUpdate(payload []byte) error {
-	mh.client.logger.Debug("Order update received",
-		"function", "handleOrderUpdate",
-		"payload_size", len(payload))
-
 	// Parse JSON payload AS ARRAY (matching legacy pattern)
 	var orderDataArray []map[string]interface{}
 	if err := json.Unmarshal(payload, &orderDataArray); err != nil {
 		return fmt.Errorf("failed to unmarshal order data: %w", err)
+	}
+
+	// Log payload ONLY if any order has a status update (matching pivot-web pattern)
+	// Legacy: strategy_manager/streaming_orders.go:86-88
+	// if hasStatusUpdates(streamingOrders) { log.Printf("UpdateOrderStatus: Incoming payload: %s", string(incoming)) }
+	if hasStatusUpdates(orderDataArray) {
+		mh.client.logger.Info("WebSocket order status update",
+			"function", "handleOrderUpdate",
+			"payload_size", len(payload),
+			"payload", string(payload))
 	}
 
 	// Process each order update in the array
@@ -217,6 +223,17 @@ func (mh *MessageHandler) handleOrderUpdate(payload []byte) error {
 	}
 
 	return nil
+}
+
+// hasStatusUpdates checks if any order in the array has a Status field
+// Following legacy pivot-web/strategy_manager/streaming_orders.go:107-113 pattern
+func hasStatusUpdates(orderDataArray []map[string]interface{}) bool {
+	for _, orderData := range orderDataArray {
+		if status, exists := orderData["Status"]; exists && status != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // parseOrderData extracts order information from Saxo streaming format

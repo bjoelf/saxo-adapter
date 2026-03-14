@@ -115,14 +115,31 @@ func (sbc *SaxoBrokerClient) PlaceOrder(ctx context.Context, req OrderRequest) (
 	}
 	defer resp.Body.Close()
 
+	// Read response body (need to read before parsing for logging)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
 	// Handle response
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		// Error responses already logged by handleErrorResponse
+		// Re-create response body for error handler
+		resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 		return nil, sbc.handleErrorResponse(resp)
 	}
 
+	// Log success response body (matching pivot-web pattern)
+	sbc.logger.Info("HTTP success response body",
+		"function", "PlaceOrder",
+		"method", "POST",
+		"path", "/trade/v2/orders",
+		"status", resp.StatusCode,
+		"body", string(bodyBytes))
+
 	// Parse success response
 	var saxoResp SaxoOrderResponse
-	if err := json.NewDecoder(resp.Body).Decode(&saxoResp); err != nil {
+	if err := json.Unmarshal(bodyBytes, &saxoResp); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -168,15 +185,30 @@ func (sbc *SaxoBrokerClient) CancelOrder(ctx context.Context, req CancelOrderReq
 	}
 	defer resp.Body.Close()
 
+	// Read response body for logging
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
 	// Handle response - 200/204 = success
 	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent {
+		// Log success response body (matching pivot-web pattern)
+		sbc.logger.Info("HTTP success response body",
+			"function", "CancelOrder",
+			"method", "DELETE",
+			"path", fmt.Sprintf("/trade/v2/orders/%s", req.OrderID),
+			"status", resp.StatusCode,
+			"body", string(bodyBytes))
+
 		sbc.logger.Info("Order cancelled successfully",
 			"function", "CancelOrder",
 			"order_id", req.OrderID)
 		return nil
 	}
 
-	// Handle error - check if order was already filled
+	// Handle error - re-create response body for error handler
+	resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	return sbc.handleErrorResponse(resp)
 }
 
@@ -318,27 +350,38 @@ func (sbc *SaxoBrokerClient) ModifyOrder(ctx context.Context, req OrderModificat
 	}
 
 	// Set headers
-	accessToken, err := sbc.authClient.GetAccessToken()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get access token: %w", err)
-	}
-
-	httpReq.Header.Set("Authorization", "Bearer "+accessToken)
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("X-Request-ID", fmt.Sprintf("modify-%d", time.Now().Unix()))
 
-	// Send request
-	resp, err := http.DefaultClient.Do(httpReq)
+	// Execute request with OAuth2 auto-refresh (use doRequest for consistent logging)
+	resp, err := sbc.doRequest(ctx, httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// Read response body for logging (even for 204 No Content)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
 	// Check for success (200-299 status codes)
 	// Saxo typically returns 204 No Content for successful order modifications
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// Re-create response body for error handler
+		resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 		return nil, sbc.handleErrorResponse(resp)
 	}
+
+	// Log success response body (matching pivot-web pattern)
+	// For 204 No Content, bodyBytes will be empty
+	sbc.logger.Info("HTTP success response body",
+		"function", "ModifyOrder",
+		"method", "PATCH",
+		"path", "/trade/v2/orders",
+		"status", resp.StatusCode,
+		"body", string(bodyBytes))
 
 	sbc.logger.Info("Order modified successfully",
 		"function", "ModifyOrder",
@@ -1000,18 +1043,59 @@ func (sbc *SaxoBrokerClient) convertFromSaxoPrice(saxoPrice SaxoPriceResponse, t
 // doRequest executes an HTTP request using OAuth2 auto-refresh client
 // This ensures tokens are automatically refreshed before requests, triggering
 // external refresh notifications for WebSocket re-authorization
+// Matches legacy pivot-web broker/oauth.go::sendBrokerData() logging pattern
 func (sbc *SaxoBrokerClient) doRequest(ctx context.Context, req *http.Request) (*http.Response, error) {
 	httpClient, err := sbc.authClient.GetHTTPClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get HTTP client: %w", err)
 	}
-	return httpClient.Do(req)
+
+	// Execute request
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Log response status (matching pivot-web pattern)
+	sbc.logger.Info("HTTP response received",
+		"function", "doRequest",
+		"status", resp.StatusCode,
+		"method", req.Method,
+		"path", req.URL.Path)
+
+	// Log response headers (matching pivot-web detailed header logging)
+	if sbc.logger.Enabled(ctx, slog.LevelDebug) {
+		headerParts := make([]string, 0, len(resp.Header))
+		for name, values := range resp.Header {
+			for _, value := range values {
+				headerParts = append(headerParts, fmt.Sprintf("%s: %s", name, value))
+			}
+		}
+		sbc.logger.Debug("HTTP response headers",
+			"function", "doRequest",
+			"headers", headerParts,
+			"method", req.Method,
+			"path", req.URL.Path)
+	}
+
+	return resp, nil
 }
 
 // handleErrorResponse handles HTTP error responses
+// Enhanced to log error body before returning (matching pivot-web pattern)
 func (sbc *SaxoBrokerClient) handleErrorResponse(resp *http.Response) error {
 	body, _ := io.ReadAll(resp.Body)
-	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	bodyStr := string(body)
+
+	// Log non-2xx responses (matching pivot-web pattern)
+	sbc.logger.Warn("HTTP error response",
+		"function", "handleErrorResponse",
+		"status", resp.StatusCode,
+		"body", bodyStr,
+		"method", resp.Request.Method,
+		"path", resp.Request.URL.Path)
+
+	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, bodyStr)
 }
 
 // SearchInstruments implements BrokerClient.SearchInstruments
