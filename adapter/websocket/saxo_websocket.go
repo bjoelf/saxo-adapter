@@ -1,13 +1,11 @@
 package websocket
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +32,7 @@ type SaxoWebSocketClient struct {
 	priceUpdateChan     chan saxo.PriceUpdate
 	orderUpdateChan     chan saxo.OrderUpdate
 	portfolioUpdateChan chan saxo.PortfolioUpdate
+	sessionEventChan    chan saxo.SessionUpdate // Session state events (snapshot + live)
 
 	// NEW: Separated reader/processor architecture channels (CRITICAL FIX)
 	// Following legacy broker_websocket.go breakthrough pattern
@@ -98,6 +97,7 @@ func NewSaxoWebSocketClient(authClient saxo.AuthClient, apiBaseURL string, webso
 		priceUpdateChan:       make(chan saxo.PriceUpdate, 100),
 		orderUpdateChan:       make(chan saxo.OrderUpdate, 100),
 		portfolioUpdateChan:   make(chan saxo.PortfolioUpdate, 100),
+		sessionEventChan:      make(chan saxo.SessionUpdate, 10),
 		// NEW: Initialize separated reader/processor channels (CRITICAL FIX)
 		// Following legacy broker_websocket.go breakthrough pattern
 		incomingMessages:     make(chan websocketMessage, 100), // Buffer 100 messages - prevents blocking
@@ -218,19 +218,63 @@ func (ws *SaxoWebSocketClient) SubscribeToPortfolio(ctx context.Context) error {
 
 // SubscribeToSessionEvents delegates to subscription manager
 // Reference: pivot-web/broker/broker_websocket.go:63 - sessionsSubscriptionPath
+// Following legacy TestForRealtime pattern: the HTTP POST response snapshot is pushed
+// as the first event to GetSessionEventChannel() so consumers can check TradeLevel immediately.
 func (ws *SaxoWebSocketClient) SubscribeToSessionEvents(ctx context.Context) error {
 	ws.logger.Info("Subscribing to session events",
 		"function", "SubscribeToSessionEvents")
-	err := ws.subscriptionManager.SubscribeToSessionEvents()
+	body, err := ws.subscriptionManager.SubscribeToSessionEvents()
 	if err != nil {
 		ws.logger.Error("Session events subscription failed",
 			"function", "SubscribeToSessionEvents",
 			"error", err)
 		return err
 	}
+	// Push snapshot as first event - equivalent to legacy TestForRealtime(body) pattern
+	ws.pushSessionSnapshot(body)
 	ws.logger.Info("Session events subscription successful",
 		"function", "SubscribeToSessionEvents")
 	return nil
+}
+
+// pushSessionSnapshot parses the HTTP POST response body and pushes it as the first session event
+// Following legacy TestForRealtime pattern: checks TradeLevel at subscription time
+func (ws *SaxoWebSocketClient) pushSessionSnapshot(body []byte) {
+	if len(body) == 0 {
+		ws.logger.Warn("Empty session snapshot body, skipping",
+			"function", "pushSessionSnapshot")
+		return
+	}
+	var caps SaxoSessionCapabilities
+	if err := json.Unmarshal(body, &caps); err != nil {
+		ws.logger.Warn("Failed to parse session snapshot",
+			"function", "pushSessionSnapshot",
+			"error", err)
+		return
+	}
+	update := saxo.SessionUpdate{
+		TradeLevel: caps.Snapshot.TradeLevel,
+		DataLevel:  caps.Snapshot.DataLevel,
+		State:      caps.State,
+	}
+	ws.logger.Info("Session snapshot received",
+		"function", "pushSessionSnapshot",
+		"trade_level", update.TradeLevel,
+		"data_level", update.DataLevel,
+		"state", update.State)
+	select {
+	case ws.sessionEventChan <- update:
+	default:
+		ws.logger.Warn("Session event channel full, dropping snapshot",
+			"function", "pushSessionSnapshot")
+	}
+}
+
+// GetSessionEventChannel returns the session event channel
+// Consumers should read this channel and call broker.SetSessionCapabilities("FullTradingAndChat")
+// when TradeLevel != "FullTradingAndChat"
+func (ws *SaxoWebSocketClient) GetSessionEventChannel() <-chan saxo.SessionUpdate {
+	return ws.sessionEventChan
 }
 
 // Channel accessor methods for strategy_manager integration
@@ -860,89 +904,35 @@ func (ws *SaxoWebSocketClient) reconnectWebSocket() error {
 	return nil
 }
 
-// handleSessionEvent processes session event messages
-// Following legacy TestForRealtime pattern
+// handleSessionEvent processes session event messages from the WebSocket stream
+// Pushes the event to sessionEventChan for the consumer (pivot-web2) to handle
+// Consumer is responsible for calling SetSessionCapabilities("FullTradingAndChat") if needed
 func (ws *SaxoWebSocketClient) handleSessionEvent(payload []byte) {
 	var session SaxoSessionCapabilities
 	err := json.Unmarshal(payload, &session)
 	if err != nil {
-		ws.logger.Error("Failed to unmarshal session capabilities",
+		ws.logger.Error("Failed to unmarshal session event",
 			"function", "handleSessionEvent",
 			"error", err)
 		return
 	}
 
-	ws.logger.Info("Session state received",
+	update := saxo.SessionUpdate{
+		TradeLevel: session.Snapshot.TradeLevel,
+		DataLevel:  session.Snapshot.DataLevel,
+		State:      session.State,
+	}
+	ws.logger.Info("Session event received",
 		"function", "handleSessionEvent",
-		"state", session.State,
-		"trade_level", session.Snapshot.TradeLevel)
+		"trade_level", update.TradeLevel,
+		"state", update.State)
 
-	// Check if session has full trading capabilities
-	if session.Snapshot.TradeLevel != "FullTradingAndChat" {
-		ws.logger.Warn("Session does not have FullTradingAndChat, attempting upgrade",
-			"function", "handleSessionEvent",
-			"current_level", session.Snapshot.TradeLevel)
-		// Wait briefly before attempting upgrade
-		time.Sleep(5 * time.Second)
-
-		if err := ws.upgradeSessionCapabilities(); err != nil {
-			ws.logger.Error("Failed to upgrade session capabilities",
-				"function", "handleSessionEvent",
-				"error", err)
-		}
+	select {
+	case ws.sessionEventChan <- update:
+	default:
+		ws.logger.Warn("Session event channel full, dropping event",
+			"function", "handleSessionEvent")
 	}
-}
-
-// upgradeSessionCapabilities requests full trading and chat privileges
-// Following legacy SetFullTradingAndChat() pattern from broker_http.go
-func (ws *SaxoWebSocketClient) upgradeSessionCapabilities() error {
-	ctx := context.Background()
-
-	// Get access token for authentication
-	accessToken, err := ws.authClient.GetAccessToken()
-	if err != nil {
-		return fmt.Errorf("failed to get access token: %w", err)
-	}
-
-	// Build request body following legacy SaxoTradeLevelParams pattern
-	type tradeLevelRequest struct {
-		TradeLevel string `json:"TradeLevel"`
-	}
-	reqBody := tradeLevelRequest{TradeLevel: "FullTradingAndChat"}
-
-	// Marshal request
-	jsonBody, err := json.Marshal(reqBody)
-	if err != nil {
-		return fmt.Errorf("failed to marshal session capability request: %w", err)
-	}
-
-	// Build HTTP request following Saxo API pattern
-	endpoint := ws.apiBaseURL + "/root/v1/sessions/capabilities"
-	req, err := http.NewRequestWithContext(ctx, "PATCH", endpoint, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set headers following legacy broker pattern
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-
-	// Execute request
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send session capability upgrade request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check response status (202 No Content expected for success following legacy pattern)
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("session capability upgrade failed with status: %d", resp.StatusCode)
-	}
-
-	ws.logger.Info("Session upgraded to FullTradingAndChat successfully",
-		"function", "upgradeSessionCapabilities")
-	return nil
 }
 
 // startTokenRefreshTimer sets up the initial token refresh timer

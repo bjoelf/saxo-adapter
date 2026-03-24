@@ -60,6 +60,12 @@ type BrokerClient interface {
 	GetInstrumentPrice(ctx context.Context, instrument Instrument) (*PriceData, error)
 	GetHistoricalData(ctx context.Context, instrument Instrument, days int, cutoffTime time.Time) ([]HistoricalDataPoint, error)
 	GetAccountInfo(ctx context.Context) (*AccountInfo, error)
+
+	// Session management
+	// SetSessionCapabilities requests a trade level upgrade (e.g., "FullTradingAndChat" for real-time data).
+	// Call this when GetSessionEventChannel() delivers an event with TradeLevel != "FullTradingAndChat".
+	// Reference: Saxo API PATCH /root/v1/sessions/capabilities
+	SetSessionCapabilities(ctx context.Context, tradeLevel string) error
 }
 
 // WebSocketClient defines real-time data streaming interface
@@ -68,10 +74,14 @@ type WebSocketClient interface {
 	SubscribeToPrices(ctx context.Context, instruments []string, assetType string) error // assetType: "FxSpot", "ContractFutures", etc.
 	SubscribeToOrders(ctx context.Context) error
 	SubscribeToPortfolio(ctx context.Context) error
+	// SubscribeToSessionEvents subscribes to session state events.
+	// The snapshot from the HTTP POST response is pushed as the first event to the session channel.
+	// Consumers should read GetSessionEventChannel() and call SetSessionCapabilities("FullTradingAndChat") when needed.
 	SubscribeToSessionEvents(ctx context.Context) error
 	GetPriceUpdateChannel() <-chan PriceUpdate
 	GetOrderUpdateChannel() <-chan OrderUpdate
 	GetPortfolioUpdateChannel() <-chan PortfolioUpdate
+	GetSessionEventChannel() <-chan SessionUpdate
 	Close() error
 }
 
