@@ -125,7 +125,7 @@ func (sm *SubscriptionManager) SubscribeToInstrumentPrices(instruments []string,
 		"subscription_request", subscriptionReq)
 
 	// Send subscription request via HTTP POST (NOT WebSocket!)
-	if err := sm.sendSubscriptionRequest(EndpointPrices, subscriptionReq); err != nil {
+	if _, err := sm.sendSubscriptionRequest(EndpointPrices, subscriptionReq); err != nil {
 		sm.client.logger.Error("Failed to send HTTP POST",
 			"function", "SubscribeToInstrumentPrices",
 			"error", err)
@@ -186,7 +186,7 @@ func (sm *SubscriptionManager) SubscribeToOrderUpdates(clientKey string) error {
 		},
 	}
 
-	if err := sm.sendSubscriptionRequest(EndpointOrders, subscriptionReq); err != nil {
+	if _, err := sm.sendSubscriptionRequest(EndpointOrders, subscriptionReq); err != nil {
 		return fmt.Errorf("failed to send order subscription: %w", err)
 	}
 
@@ -234,7 +234,7 @@ func (sm *SubscriptionManager) SubscribeToPortfolioUpdates(clientKey string) err
 		},
 	}
 
-	if err := sm.sendSubscriptionRequest(EndpointBalance, subscriptionReq); err != nil {
+	if _, err := sm.sendSubscriptionRequest(EndpointBalance, subscriptionReq); err != nil {
 		return fmt.Errorf("failed to send portfolio subscription: %w", err)
 	}
 
@@ -259,14 +259,15 @@ func (sm *SubscriptionManager) SubscribeToPortfolioUpdates(clientKey string) err
 // SubscribeToSessionEvents establishes session event subscription for connection robustness
 // Per Saxo API: POST /root/v1/sessions/events/subscriptions/active
 // Reference: pivot-web/broker/broker_websocket.go:63 - sessionsSubscriptionPath
-func (sm *SubscriptionManager) SubscribeToSessionEvents() error {
+// Returns the raw response body (snapshot) so the caller can push it as the first session event
+func (sm *SubscriptionManager) SubscribeToSessionEvents() ([]byte, error) {
 	sm.subscriptionMu.Lock()
 	defer sm.subscriptionMu.Unlock()
 
 	// Get WebSocket Context ID
 	contextId := sm.client.contextID
 	if contextId == "" {
-		return fmt.Errorf("WebSocket not connected - no context ID")
+		return nil, fmt.Errorf("WebSocket not connected - no context ID")
 	}
 
 	// Generate human-readable reference ID following legacy pattern
@@ -285,11 +286,12 @@ func (sm *SubscriptionManager) SubscribeToSessionEvents() error {
 		"function", "SubscribeToSessionEvents",
 		"subscription_request", subscriptionReq)
 
-	if err := sm.sendSubscriptionRequest(EndpointSessionEvents, subscriptionReq); err != nil {
+	body, err := sm.sendSubscriptionRequest(EndpointSessionEvents, subscriptionReq)
+	if err != nil {
 		sm.client.logger.Error("Failed to send HTTP POST",
 			"function", "SubscribeToSessionEvents",
 			"error", err)
-		return fmt.Errorf("failed to send session events subscription: %w", err)
+		return nil, fmt.Errorf("failed to send session events subscription: %w", err)
 	}
 
 	subscription := &Subscription{
@@ -306,23 +308,23 @@ func (sm *SubscriptionManager) SubscribeToSessionEvents() error {
 		"function", "SubscribeToSessionEvents",
 		"reference_id", referenceId)
 
-	return nil
+	return body, nil
 }
 
 // sendSubscriptionRequest sends HTTP POST subscription request following Saxo streaming API
 // Per documentation: Subscriptions are ALWAYS sent via HTTP POST, never via WebSocket
 // Reference: https://www.developer.saxo/openapi/learn/streaming#Subscription-example
-func (sm *SubscriptionManager) sendSubscriptionRequest(endpoint string, subscriptionReq map[string]interface{}) error {
+func (sm *SubscriptionManager) sendSubscriptionRequest(endpoint string, subscriptionReq map[string]interface{}) ([]byte, error) {
 	// Get access token
 	token, err := sm.getAuthToken()
 	if err != nil {
-		return fmt.Errorf("failed to get access token: %w", err)
+		return nil, fmt.Errorf("failed to get access token: %w", err)
 	}
 
 	// Marshal request body
 	reqBody, err := json.Marshal(subscriptionReq)
 	if err != nil {
-		return fmt.Errorf("failed to marshal subscription request: %w", err)
+		return nil, fmt.Errorf("failed to marshal subscription request: %w", err)
 	}
 
 	sm.client.logger.Debug("Sending HTTP POST subscription request",
@@ -335,7 +337,7 @@ func (sm *SubscriptionManager) sendSubscriptionRequest(endpoint string, subscrip
 	ctx := context.Background()
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqBody))
 	if err != nil {
-		return fmt.Errorf("failed to create HTTP request: %w", err)
+		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
 	// Set headers per Saxo API requirements
@@ -345,13 +347,13 @@ func (sm *SubscriptionManager) sendSubscriptionRequest(endpoint string, subscrip
 	// Get HTTP client from auth client (for TLS configuration in tests)
 	httpClient, err := sm.client.authClient.GetHTTPClient(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get HTTP client: %w", err)
+		return nil, fmt.Errorf("failed to get HTTP client: %w", err)
 	}
 
 	// Send request
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("HTTP request failed: %w", err)
+		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -362,13 +364,17 @@ func (sm *SubscriptionManager) sendSubscriptionRequest(endpoint string, subscrip
 			"function", "sendSubscriptionRequest",
 			"status", resp.StatusCode,
 			"body", string(bodyBytes))
-		return fmt.Errorf("subscription request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+		return nil, fmt.Errorf("subscription request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	// Log success
-	sm.client.logger.Debug("Subscription created successfully",
-		"function", "sendSubscriptionRequest",
-		"status", resp.StatusCode)
+	// Read response body (snapshot data returned by Saxo for session subscriptions)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		sm.client.logger.Warn("Failed to read subscription response body",
+			"function", "sendSubscriptionRequest",
+			"error", err)
+		bodyBytes = nil
+	}
 
 	// Note: The Location header contains the subscription resource URL for deletion
 	// We should store this for later deletion, but for now we just log it
@@ -379,7 +385,11 @@ func (sm *SubscriptionManager) sendSubscriptionRequest(endpoint string, subscrip
 			"location", location)
 	}
 
-	return nil
+	sm.client.logger.Debug("Subscription created successfully",
+		"function", "sendSubscriptionRequest",
+		"status", resp.StatusCode)
+
+	return bodyBytes, nil
 }
 
 // generateNewReferenceId creates a new reference ID by replacing the timestamp suffix
@@ -495,7 +505,7 @@ func (sm *SubscriptionManager) HandleSubscriptions(targetReferenceIds []string) 
 		}
 
 		// Send HTTP POST subscription request (correct per Saxo API documentation)
-		if err := sm.sendSubscriptionRequest(endpoint, subscriptionReq); err != nil {
+		if _, err := sm.sendSubscriptionRequest(endpoint, subscriptionReq); err != nil {
 			return fmt.Errorf("failed to resubscribe %s: %w", refId, err)
 		}
 

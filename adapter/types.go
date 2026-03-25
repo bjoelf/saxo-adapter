@@ -558,3 +558,12 @@ type SaxoPriceQuote struct {
 	Ask float64
 	Mid float64
 }
+
+// SessionUpdate represents a Saxo session state event
+// Sent both as snapshot (from HTTP POST response) and as live WebSocket events
+// Consumer should call SetSessionCapabilities("FullTradingAndChat") if TradeLevel is not "FullTradingAndChat"
+type SessionUpdate struct {
+	TradeLevel string // "FullTradingAndChat", "OrderOnly", etc.
+	DataLevel  string // "Realtime", "Delayed", etc.
+	State      string // Session state
+}

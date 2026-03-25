@@ -1322,3 +1322,50 @@ func (sbc *SaxoBrokerClient) GetInstrumentPrices(ctx context.Context, uics []int
 		"count", len(prices))
 	return prices, nil
 }
+
+// SetSessionCapabilities requests a trade level upgrade for the current session
+// Following legacy SetFullTradingAndChat() pattern from broker_http.go
+// Reference: Saxo API PATCH /root/v1/sessions/capabilities
+// tradeLevel: "FullTradingAndChat" for real-time data, "OrderOnly" for delayed data
+func (sbc *SaxoBrokerClient) SetSessionCapabilities(ctx context.Context, tradeLevel string) error {
+	type tradeLevelRequest struct {
+		TradeLevel string `json:"TradeLevel"`
+	}
+
+	reqBody, err := json.Marshal(tradeLevelRequest{TradeLevel: tradeLevel})
+	if err != nil {
+		return fmt.Errorf("failed to marshal session capability request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "PATCH",
+		sbc.baseURL+"/root/v1/sessions/capabilities", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return fmt.Errorf("failed to create session capability request: %w", err)
+	}
+
+	accessToken, err := sbc.authClient.GetAccessToken()
+	if err != nil {
+		return fmt.Errorf("failed to get access token: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("session capability request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Saxo returns 202 Accepted (or 200/204) on success
+	if resp.StatusCode != http.StatusNoContent &&
+		resp.StatusCode != http.StatusOK &&
+		resp.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("session capability request returned status %d", resp.StatusCode)
+	}
+
+	sbc.logger.Info("Session capabilities set",
+		"function", "SetSessionCapabilities",
+		"trade_level", tradeLevel)
+	return nil
+}
