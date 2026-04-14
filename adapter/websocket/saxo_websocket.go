@@ -95,7 +95,7 @@ func NewSaxoWebSocketClient(authClient saxo.AuthClient, apiBaseURL string, webso
 		logger:                logger,
 		lastMessageTimestamps: make(map[string]time.Time),
 		priceUpdateChan:       make(chan saxo.PriceUpdate, 100),
-		orderUpdateChan:       make(chan saxo.OrderUpdate, 100),
+		orderUpdateChan:       make(chan saxo.OrderUpdate, 1000), // HARDENED: 10x buffer to prevent deadlock during OCO floods
 		portfolioUpdateChan:   make(chan saxo.PortfolioUpdate, 100),
 		sessionEventChan:      make(chan saxo.SessionUpdate, 10),
 		// NEW: Initialize separated reader/processor channels (CRITICAL FIX)
@@ -354,6 +354,17 @@ func (ws *SaxoWebSocketClient) GetOrderUpdateChannel() <-chan saxo.OrderUpdate {
 
 func (ws *SaxoWebSocketClient) GetPortfolioUpdateChannel() <-chan saxo.PortfolioUpdate {
 	return ws.portfolioUpdateChan
+}
+
+// GetChannelStats returns channel utilization statistics for monitoring
+// Used for health checks and circuit breaker logic in consuming applications
+func (ws *SaxoWebSocketClient) GetChannelStats() map[string]int {
+	return map[string]int{
+		"orderUpdateQueueLength":   len(ws.orderUpdateChan),
+		"orderUpdateQueueCapacity": cap(ws.orderUpdateChan),
+		"priceUpdateQueueLength":   len(ws.priceUpdateChan),
+		"priceUpdateQueueCapacity": cap(ws.priceUpdateChan),
+	}
 }
 
 // UpdateLastMessageTimestamp updates the last message timestamp for a subscription
