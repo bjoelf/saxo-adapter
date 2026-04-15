@@ -441,6 +441,37 @@ type SaxoClosedPosition struct {
 	NetPositionID string `json:"NetPositionId"`
 }
 
+// SaxoHistoricalPosition represents a single closed-trade record from GET /hist/v3/positions/{ClientKey}
+type SaxoHistoricalPosition struct {
+	AccountID          string    `json:"AccountId"`
+	Amount             float64   `json:"Amount"`
+	ClosingAssetType   string    `json:"ClosingAssetType"`
+	ClosingTradeDate   string    `json:"ClosingTradeDate"` // date-only "YYYY-MM-DD"
+	Decimals           int       `json:"Decimals"`
+	ExecutionTimeClose time.Time `json:"ExecutionTimeClose"`
+	ExecutionTimeOpen  time.Time `json:"ExecutionTimeOpen"`
+	InstrumentSymbol   string    `json:"InstrumentSymbol"`
+	LongShort          struct {
+		PresentationValue string `json:"PresentationValue"`
+	} `json:"LongShort"`
+	OpeningAssetType                   string  `json:"OpeningAssetType"`
+	PriceClose                         float64 `json:"PriceClose"`
+	PriceOpen                          float64 `json:"PriceOpen"`
+	PricePct                           float64 `json:"PricePct"`
+	ProfitLoss                         float64 `json:"ProfitLoss"`
+	ProfitLossAccountValueFraction     float64 `json:"ProfitLossAccountValueFraction"`
+	InstrumentCcyToAccountCcyRateClose float64 `json:"InstrumentCcyToAccountCcyRateClose"`
+	InstrumentCcyToAccountCcyRateOpen  float64 `json:"InstrumentCcyToAccountCcyRateOpen"`
+	Uic                                string  `json:"Uic"`
+}
+
+// SaxoHistoricalPositionsResponse is the paged envelope from GET /hist/v3/positions/{ClientKey}
+type SaxoHistoricalPositionsResponse struct {
+	Count int                      `json:"__count"`
+	Next  string                   `json:"__next"`
+	Data  []SaxoHistoricalPosition `json:"Data"`
+}
+
 // SaxoAccounts represents account information response
 type SaxoAccounts struct {
 	Data []SaxoAccountInfo `json:"Data"`

@@ -628,6 +628,40 @@ func (sbc *SaxoBrokerClient) GetClosedPositions(ctx context.Context) (*SaxoClose
 	return &saxoResponse, nil
 }
 
+// GetHistoricalPositions retrieves closed-trade history from the Account History API.
+// Endpoint: GET /hist/v3/positions/{ClientKey}?FromDate=YYYY-MM-DD&ToDate=YYYY-MM-DD&$top=100
+func (sbc *SaxoBrokerClient) GetHistoricalPositions(ctx context.Context, clientKey, fromDate, toDate string) (*HistoricalPositionsResponse, error) {
+	url := fmt.Sprintf("%s/hist/v3/positions/%s?FromDate=%s&ToDate=%s&$top=100",
+		sbc.baseURL, clientKey, fromDate, toDate)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := sbc.doRequest(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get historical positions: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, sbc.handleErrorResponse(resp)
+	}
+
+	var result HistoricalPositionsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode historical positions response: %w", err)
+	}
+
+	sbc.logger.Info("Retrieved historical positions",
+		"function", "GetHistoricalPositions",
+		"count", len(result.Data),
+		"fromDate", fromDate,
+		"toDate", toDate)
+	return &result, nil
+}
+
 // GetAccounts implements BrokerClient.GetAccounts with generic return type
 func (sbc *SaxoBrokerClient) GetAccounts(ctx context.Context) (*Accounts, error) {
 	sbc.logger.Debug("Fetching accounts",

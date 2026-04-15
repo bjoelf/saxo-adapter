@@ -43,6 +43,7 @@ type BrokerClient interface {
 	GetOpenPositions(ctx context.Context) (*OpenPositionsResponse, error)
 	GetNetPositions(ctx context.Context) (*NetPositionsResponse, error)
 	GetClosedPositions(ctx context.Context) (*ClosedPositionsResponse, error)
+	GetHistoricalPositions(ctx context.Context, clientKey, fromDate, toDate string) (*HistoricalPositionsResponse, error)
 
 	// Account and balance queries - generic, broker-agnostic
 	GetBalance(ctx context.Context) (*Balance, error)
@@ -287,6 +288,10 @@ type OpenPositionsResponse = SaxoOpenPositionsResponse
 // ClosedPositionsResponse represents closed positions response
 // Type alias to SaxoClosedPositionsResponse - broker-agnostic naming
 type ClosedPositionsResponse = SaxoClosedPositionsResponse
+
+// HistoricalPositionsResponse represents the account-history positions response
+// Type alias to SaxoHistoricalPositionsResponse - broker-agnostic naming
+type HistoricalPositionsResponse = SaxoHistoricalPositionsResponse
 
 // NetPositionsResponse represents net positions response
 // Type alias to SaxoNetPositionsResponse - broker-agnostic naming
