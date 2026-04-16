@@ -57,6 +57,16 @@ type SaxoBrokerClient struct {
 	cacheExpiry  time.Duration // Default: 1 hour like legacy system
 }
 
+// Verify interface compliance at compile time
+// Full composite interface
+var _ BrokerClient = (*SaxoBrokerClient)(nil)
+
+// Segregated interfaces - explicit verification
+var _ OrderClient = (*SaxoBrokerClient)(nil)
+var _ AccountClient = (*SaxoBrokerClient)(nil)
+var _ MarketDataClient = (*SaxoBrokerClient)(nil)
+var _ PositionClient = (*SaxoBrokerClient)(nil)
+
 // NewSaxoBrokerClient creates a new Saxo broker client
 func NewSaxoBrokerClient(authClient AuthClient, baseURL string, logger *slog.Logger) *SaxoBrokerClient {
 	return &SaxoBrokerClient{
