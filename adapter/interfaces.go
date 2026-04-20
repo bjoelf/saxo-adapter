@@ -28,45 +28,118 @@ type AuthClient interface {
 	ExchangeCodeForToken(ctx context.Context, code string, provider string) error
 }
 
-// BrokerClient defines the interface for direct broker operations
-// This is a generic, broker-agnostic interface that any broker can implement
-type BrokerClient interface {
-	// Core trading operations
+// ============================================================================
+// SEGREGATED INTERFACES - Enable multi-broker support with incomplete implementations
+// ============================================================================
+// These focused interfaces allow brokers to implement only what they support.
+// Example: Interactive Brokers adapter can implement OrderClient + AccountClient
+// without MarketDataClient (IB doesn't provide historical data API).
+//
+// Services can check capabilities at runtime and fall back to alternative providers:
+//   if mdClient, ok := broker.(MarketDataClient); ok {
+//       // Use broker's market data
+//   } else {
+//       // Fall back to dedicated data provider
+//   }
+//
+// This is a LIBRARY ARCHITECTURE - consumers should depend on specific interfaces,
+// not the monolithic BrokerClient, for better testability and clearer dependencies.
+// ============================================================================
+
+// OrderClient defines order management operations
+// All brokers that support trading must implement this interface
+type OrderClient interface {
+	// Order placement and modification
 	PlaceOrder(ctx context.Context, req OrderRequest) (*OrderResponse, error)
 	ModifyOrder(ctx context.Context, req OrderModificationRequest) (*OrderResponse, error)
 	GetOrderStatus(ctx context.Context, orderID string) (*OrderStatus, error)
+
+	// Order cancellation and position closing
 	CancelOrder(ctx context.Context, req CancelOrderRequest) error
 	ClosePosition(ctx context.Context, req ClosePositionRequest) (*OrderResponse, error)
 
-	// Order and position queries
+	// Order queries
 	GetOpenOrders(ctx context.Context) ([]LiveOrder, error)
-	GetOpenPositions(ctx context.Context) (*OpenPositionsResponse, error)
-	GetNetPositions(ctx context.Context) (*NetPositionsResponse, error)
-	GetClosedPositions(ctx context.Context) (*ClosedPositionsResponse, error)
-	GetHistoricalPositions(ctx context.Context, clientKey, fromDate, toDate string) (*HistoricalPositionsResponse, error)
+}
 
-	// Account and balance queries - generic, broker-agnostic
-	GetBalance(ctx context.Context) (*Balance, error)
+// AccountClient defines account and balance operations
+// All brokers must implement this interface
+type AccountClient interface {
+	// Account information
 	GetAccounts(ctx context.Context) (*Accounts, error)
-	GetMarginOverview(ctx context.Context, clientKey string) (*MarginOverview, error)
-	GetClientInfo(ctx context.Context) (*ClientInfo, error)
-	GetTradingSchedule(ctx context.Context, params TradingScheduleParams) (*TradingSchedule, error)
-
-	// Instrument search and metadata (Tier 2 - The Usual Suspects)
-	SearchInstruments(ctx context.Context, params InstrumentSearchParams) ([]Instrument, error)
-	GetInstrumentDetails(ctx context.Context, uics []int) ([]InstrumentDetail, error)
-	GetInstrumentPrices(ctx context.Context, uics []int, fieldGroups string, assetType string) ([]InstrumentPriceInfo, error)
-
-	// Market data operations (consolidated from MarketDataClient)
-	GetInstrumentPrice(ctx context.Context, instrument Instrument) (*PriceData, error)
-	GetHistoricalData(ctx context.Context, instrument Instrument, days int, cutoffTime time.Time) ([]HistoricalDataPoint, error)
 	GetAccountInfo(ctx context.Context) (*AccountInfo, error)
+	GetClientInfo(ctx context.Context) (*ClientInfo, error)
+
+	// Balance and margin
+	GetBalance(ctx context.Context) (*Balance, error)
+	GetMarginOverview(ctx context.Context, clientKey string) (*MarginOverview, error)
 
 	// Session management
 	// SetSessionCapabilities requests a trade level upgrade (e.g., "FullTradingAndChat" for real-time data).
 	// Call this when GetSessionEventChannel() delivers an event with TradeLevel != "FullTradingAndChat".
 	// Reference: Saxo API PATCH /root/v1/sessions/capabilities
 	SetSessionCapabilities(ctx context.Context, tradeLevel string) error
+}
+
+// MarketDataClient defines market data operations (HTTP REST)
+// OPTIONAL: Not all brokers provide historical data (e.g., Interactive Brokers)
+// Services should check capability: if mdClient, ok := broker.(MarketDataClient); ok { ... }
+//
+// For real-time streaming, use WebSocketClient (see below)
+type MarketDataClient interface {
+	// Instrument pricing (HTTP REST - for on-demand queries)
+	GetInstrumentPrice(ctx context.Context, instrument Instrument) (*PriceData, error)
+
+	// Historical data (OHLC bars with cutoff time support)
+	// Note: IB does not provide this - use Saxo or third-party data vendor
+	GetHistoricalData(ctx context.Context, instrument Instrument, days int, cutoffTime time.Time) ([]HistoricalDataPoint, error)
+
+	// Trading schedule (market hours)
+	GetTradingSchedule(ctx context.Context, params TradingScheduleParams) (*TradingSchedule, error)
+
+	// Instrument search and metadata
+	// These are typically only available from full-service brokers
+	SearchInstruments(ctx context.Context, params InstrumentSearchParams) ([]Instrument, error)
+	GetInstrumentDetails(ctx context.Context, uics []int) ([]InstrumentDetail, error)
+	GetInstrumentPrices(ctx context.Context, uics []int, fieldGroups string, assetType string) ([]InstrumentPriceInfo, error)
+}
+
+// PositionClient defines position query operations
+// All brokers that support trading must implement this interface
+type PositionClient interface {
+	GetOpenPositions(ctx context.Context) (*OpenPositionsResponse, error)
+	GetClosedPositions(ctx context.Context) (*ClosedPositionsResponse, error)
+	GetNetPositions(ctx context.Context) (*NetPositionsResponse, error)
+	GetHistoricalPositions(ctx context.Context, clientKey, fromDate, toDate string) (*HistoricalPositionsResponse, error)
+}
+
+// ============================================================================
+// COMPOSITE INTERFACE - Backward compatibility
+// ============================================================================
+// BrokerClient combines all focused interfaces for backward compatibility.
+// Existing code using BrokerClient continues to work unchanged.
+//
+// New services should depend on specific interfaces (OrderClient, AccountClient, etc.)
+// for better testability and clearer dependencies.
+//
+// Example migration:
+//   Old: func NewTradingService(broker BrokerClient) *TradingService
+//   New: func NewTradingService(orders OrderClient, accounts AccountClient, positions PositionClient) *TradingService
+//
+// The composite pattern allows:
+// 1. Full implementation (Saxo implements all interfaces)
+// 2. Partial implementation (IB implements only OrderClient + AccountClient + PositionClient)
+// 3. Composite broker (Router that delegates to multiple providers based on capability)
+// ============================================================================
+
+// BrokerClient defines the complete interface for broker operations (composite)
+// This is the full interface that Saxo adapter implements.
+// Future brokers may implement only a subset (e.g., IB without MarketDataClient).
+type BrokerClient interface {
+	OrderClient
+	AccountClient
+	MarketDataClient
+	PositionClient
 }
 
 // WebSocketClient defines real-time data streaming interface
