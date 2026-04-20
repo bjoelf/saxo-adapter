@@ -211,7 +211,7 @@ func (mh *MessageHandler) handleOrderUpdate(payload []byte) error {
 		// Send to channel (non-blocking)
 		select {
 		case mh.client.orderUpdateChan <- *orderUpdate:
-			mh.client.logger.Debug("Order update sent",
+			mh.client.logger.Info("Order update sent",
 				"function", "handleOrderUpdate",
 				"order_id", orderUpdate.OrderId,
 				"status", orderUpdate.Status)
