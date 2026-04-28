@@ -65,6 +65,9 @@ type SaxoWebSocketClient struct {
 	reconnectionHandlerMu      sync.Mutex    // Protects reconnection handler state
 	reconnectInProgress        bool          // Flag to prevent concurrent reconnection attempts
 	reconnectMu                sync.Mutex    // Protects reconnection state
+	monitoringRunning          bool          // Tracks if monitoring goroutine is active
+	monitoringDone             chan struct{} // Signals when monitoring goroutine exits
+	monitoringMu               sync.Mutex    // Protects monitoring goroutine state
 
 	// Reconnection logic - exponential backoff following legacy patterns
 	maxReconnectAttempts int

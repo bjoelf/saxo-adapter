@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -303,6 +304,27 @@ func (cm *ConnectionManager) reconnectWithBackoff() {
 // Replaces ping/pong approach - Saxo uses _heartbeat control messages instead
 // Following legacy broker_websocket.go timeout detection pattern
 func (cm *ConnectionManager) startSubscriptionMonitoring() {
+	// Track goroutine lifecycle (following legacy pattern)
+	cm.client.monitoringMu.Lock()
+	cm.client.monitoringRunning = true
+	cm.client.monitoringDone = make(chan struct{})
+	cm.client.monitoringMu.Unlock()
+
+	defer func() {
+		cm.client.monitoringMu.Lock()
+		cm.client.monitoringRunning = false
+		if cm.client.monitoringDone != nil {
+			close(cm.client.monitoringDone)
+			cm.client.monitoringDone = nil
+		}
+		cm.client.monitoringMu.Unlock()
+		cm.client.logger.Info("Subscription monitoring goroutine exited",
+			"function", "startSubscriptionMonitoring")
+	}()
+
+	cm.client.logger.Info("Subscription monitoring goroutine started",
+		"function", "startSubscriptionMonitoring")
+
 	ticker := time.NewTicker(55 * time.Second) // Check every 55 seconds
 	defer ticker.Stop()
 
@@ -343,11 +365,26 @@ func (cm *ConnectionManager) startSubscriptionMonitoring() {
 				}
 				return
 			} else if len(timedOut) > 0 {
-				// Partial timeout - attempt subscription reset via subscription manager
-				cm.client.logger.Warn("Partial timeout detected",
+				// Partial timeout - reset stale subscriptions (CRITICAL FIX)
+				// Following legacy broker_websocket.go pattern at line 843
+				cm.client.logger.Warn("Partial timeout detected - resetting stale subscriptions",
 					"function", "startSubscriptionMonitoring",
 					"timed_out", len(timedOut),
-					"total", totalSubscriptions)
+					"total", totalSubscriptions,
+					"timed_out_refs", timedOut)
+
+				// Reset subscriptions asynchronously to avoid blocking monitoring loop
+				go func(staleRefs []string) {
+					if err := cm.client.subscriptionManager.HandleSubscriptionReset(staleRefs); err != nil {
+						cm.client.logger.Warn("Subscription reset failed",
+							"function", "startSubscriptionMonitoring",
+							"error", err)
+					} else {
+						cm.client.logger.Info("Subscription reset completed",
+							"function", "startSubscriptionMonitoring",
+							"count", len(staleRefs))
+					}
+				}(timedOut)
 			}
 		}
 	}
@@ -363,7 +400,8 @@ func (cm *ConnectionManager) handleConnectionClosed() {
 	}
 }
 
-// CloseConnection gracefully closes WebSocket connection
+// CloseConnection gracefully closes WebSocket connection with timeout (CRITICAL FIX)
+// Following legacy broker_websocket.go pattern with 5-second timeout for goroutine shutdown
 func (cm *ConnectionManager) CloseConnection() error {
 	cm.client.logger.Info("Closing WebSocket connection",
 		"function", "CloseConnection")
@@ -374,6 +412,85 @@ func (cm *ConnectionManager) CloseConnection() error {
 		return nil // Already closed
 	}
 
+	// CRITICAL: Cancel context to signal all goroutines to stop
+	// Following legacy broker_websocket.go pattern (line 670)
+	if cm.client.cancel != nil {
+		cm.client.logger.Debug("Canceling context to stop goroutines",
+			"function", "CloseConnection")
+		cm.client.cancel()
+	}
+
+	// CRITICAL: Wait for goroutines to exit with timeout (following legacy pattern)
+	// Legacy broker_websocket.go has 5-second timeout for reader/processor/monitoring
+	shutdownComplete := make(chan struct{})
+
+	go func() {
+		// Wait for all goroutines to exit
+		var wg sync.WaitGroup
+
+		// Wait for reader goroutine
+		cm.client.readerMu.Lock()
+		readerRunning := cm.client.readerRunning
+		readerDone := cm.client.readerDone
+		cm.client.readerMu.Unlock()
+
+		if readerRunning && readerDone != nil {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-readerDone
+				cm.client.logger.Debug("Reader goroutine exited",
+					"function", "CloseConnection")
+			}()
+		}
+
+		// Wait for processor goroutine
+		cm.client.processorMu.Lock()
+		processorRunning := cm.client.processorRunning
+		processorDone := cm.client.processorDone
+		cm.client.processorMu.Unlock()
+
+		if processorRunning && processorDone != nil {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-processorDone
+				cm.client.logger.Debug("Processor goroutine exited",
+					"function", "CloseConnection")
+			}()
+		}
+
+		// Wait for monitoring goroutine
+		cm.client.monitoringMu.Lock()
+		monitoringRunning := cm.client.monitoringRunning
+		monitoringDone := cm.client.monitoringDone
+		cm.client.monitoringMu.Unlock()
+
+		if monitoringRunning && monitoringDone != nil {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-monitoringDone
+				cm.client.logger.Debug("Monitoring goroutine exited",
+					"function", "CloseConnection")
+			}()
+		}
+
+		wg.Wait()
+		close(shutdownComplete)
+	}()
+
+	// Wait for graceful shutdown with timeout (following legacy 5-second pattern)
+	select {
+	case <-shutdownComplete:
+		cm.client.logger.Info("Graceful shutdown completed - all goroutines exited",
+			"function", "CloseConnection")
+	case <-time.After(5 * time.Second):
+		cm.client.logger.Warn("Shutdown timeout - forcing close (goroutines may still be running)",
+			"function", "CloseConnection")
+	}
+
+	// Now close the actual WebSocket connection
 	if cm.client.conn != nil {
 		cm.client.logger.Debug("Sending close message",
 			"function", "CloseConnection")
