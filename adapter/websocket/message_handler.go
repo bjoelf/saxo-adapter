@@ -186,12 +186,23 @@ func (mh *MessageHandler) handleOrderUpdate(payload []byte) error {
 		return fmt.Errorf("failed to unmarshal order data: %w", err)
 	}
 
-	// Log payload ONLY if any order has a status update (matching pivot-web pattern)
+	// Log payload if any order has a status update OR __meta_deleted flag
 	// Legacy: strategy_manager/streaming_orders.go:86-88
 	// if hasStatusUpdates(streamingOrders) { log.Printf("UpdateOrderStatus: Incoming payload: %s", string(incoming)) }
-	if hasStatusUpdates(orderDataArray) {
+	// CRITICAL: Also log __meta_deleted messages (they often have NO Status field)
+	hasStatus := hasStatusUpdates(orderDataArray)
+	hasDeleted := hasMetaDeletedUpdates(orderDataArray)
+
+	if hasStatus || hasDeleted {
+		logLevel := "INFO"
+		if hasDeleted {
+			logLevel = "CRITICAL" // __meta_deleted means fill occurred
+		}
 		mh.client.logger.Info("WebSocket order status update",
 			"function", "handleOrderUpdate",
+			"log_level", logLevel,
+			"has_status", hasStatus,
+			"has_meta_deleted", hasDeleted,
 			"payload_size", len(payload),
 			"payload", string(payload))
 	}
@@ -211,10 +222,24 @@ func (mh *MessageHandler) handleOrderUpdate(payload []byte) error {
 		// Send to channel (non-blocking)
 		select {
 		case mh.client.orderUpdateChan <- *orderUpdate:
-			mh.client.logger.Info("Order update sent",
-				"function", "handleOrderUpdate",
-				"order_id", orderUpdate.OrderId,
-				"status", orderUpdate.Status)
+			// DIAGNOSTIC: Log meta_deleted flag explicitly
+			metaDeletedStr := "false"
+			if orderUpdate.MetaDeleted != nil && *orderUpdate.MetaDeleted {
+				metaDeletedStr = "true"
+			}
+
+			// Log at Info level only if Status or __meta_deleted present, otherwise Debug
+			if orderUpdate.Status != "" || (orderUpdate.MetaDeleted != nil && *orderUpdate.MetaDeleted) {
+				mh.client.logger.Info("Order update sent",
+					"function", "handleOrderUpdate",
+					"order_id", orderUpdate.OrderId,
+					"status", orderUpdate.Status,
+					"meta_deleted", metaDeletedStr)
+			} else {
+				mh.client.logger.Debug("Order update sent (no status/meta_deleted)",
+					"function", "handleOrderUpdate",
+					"order_id", orderUpdate.OrderId)
+			}
 		default:
 			mh.client.logger.Warn("Order update channel full, dropping update",
 				"function", "handleOrderUpdate",
@@ -231,6 +256,33 @@ func hasStatusUpdates(orderDataArray []map[string]interface{}) bool {
 	for _, orderData := range orderDataArray {
 		if status, exists := orderData["Status"]; exists && status != nil {
 			return true
+		}
+	}
+	return false
+}
+
+// hasMetaDeletedUpdates checks if any order in the array has __meta_deleted flag
+// CRITICAL: Fill messages often have ONLY __meta_deleted with NO Status field
+// Example: {"OrderId": "5269510038", "__meta_deleted": true}
+// Also checks RelatedOpenOrders for nested __meta_deleted (exit orders referencing filled entry)
+func hasMetaDeletedUpdates(orderDataArray []map[string]interface{}) bool {
+	for _, orderData := range orderDataArray {
+		// Check top-level __meta_deleted
+		if metaDeleted, exists := orderData["__meta_deleted"].(bool); exists && metaDeleted {
+			return true
+		}
+
+		// Check RelatedOpenOrders for __meta_deleted
+		if relatedOrdersRaw, exists := orderData["RelatedOpenOrders"]; exists {
+			if relatedOrdersArray, ok := relatedOrdersRaw.([]interface{}); ok {
+				for _, relatedRaw := range relatedOrdersArray {
+					if relatedMap, ok := relatedRaw.(map[string]interface{}); ok {
+						if metaDeleted, exists := relatedMap["__meta_deleted"].(bool); exists && metaDeleted {
+							return true
+						}
+					}
+				}
+			}
 		}
 	}
 	return false
