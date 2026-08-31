@@ -15,11 +15,18 @@ import (
 type MockAuthClient struct {
 	authenticated bool
 	accessToken   string
+	tokenExpiry   time.Time
 	httpClient    *http.Client
 }
 
 func (m *MockAuthClient) IsAuthenticated() bool           { return m.authenticated }
 func (m *MockAuthClient) GetAccessToken() (string, error) { return m.accessToken, nil }
+func (m *MockAuthClient) GetAccessTokenExpiry() (time.Time, error) {
+	if m.tokenExpiry.IsZero() {
+		return time.Now().Add(20 * time.Minute), nil
+	}
+	return m.tokenExpiry, nil
+}
 func (m *MockAuthClient) GetHTTPClient(ctx context.Context) (*http.Client, error) {
 	if m.httpClient != nil {
 		return m.httpClient, nil
@@ -97,9 +104,30 @@ func TestSaxoWebSocketClient_Connect(t *testing.T) {
 		t.Error("Expected client to be connected")
 	}
 
-	// Test graceful shutdown
+	// Test graceful shutdown. Closing the transport must unblock ReadMessage
+	// instead of waiting for the shutdown timeout.
+	started := time.Now()
 	if err := client.Close(); err != nil {
 		t.Errorf("Failed to close WebSocket connection: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Errorf("WebSocket close took %v; expected less than 1s", elapsed)
+	}
+}
+
+func TestSaxoWebSocketClient_TokenRefreshUsesActualExpiry(t *testing.T) {
+	expiresIn := 5 * time.Minute
+	mockAuth := &MockAuthClient{
+		authenticated: true,
+		accessToken:   "test_token_123",
+		tokenExpiry:   time.Now().Add(expiresIn),
+	}
+	client := NewSaxoWebSocketClient(mockAuth, "https://example.test", "https://example.test", slog.Default())
+	defer client.stopTokenRefreshTimer()
+
+	remaining := client.startTokenRefreshTimer()
+	if remaining < expiresIn-time.Second || remaining > expiresIn {
+		t.Fatalf("timer used %v remaining; expected approximately %v", remaining, expiresIn)
 	}
 }
 
