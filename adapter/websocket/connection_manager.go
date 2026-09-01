@@ -15,6 +15,7 @@ import (
 // Manages 22:00 UTC connection establishment and complex reconnection logic
 type ConnectionManager struct {
 	client       *SaxoWebSocketClient
+	stateMu      sync.RWMutex
 	connected    bool
 	reconnecting bool
 
@@ -40,7 +41,7 @@ func (cm *ConnectionManager) EstablishConnection(ctx context.Context) error {
 	cm.client.logger.Info("Starting WebSocket connection",
 		"function", "EstablishConnection")
 
-	if cm.connected {
+	if cm.IsConnected() {
 		cm.client.logger.Info("Connection already established",
 			"function", "EstablishConnection")
 		return fmt.Errorf("connection already established")
@@ -154,8 +155,10 @@ func (cm *ConnectionManager) EstablishConnection(ctx context.Context) error {
 	cm.client.conn = conn
 	cm.client.contextID = contextId // Use the contextId we generated earlier
 	cm.client.lastSequenceNumber = 0
+	cm.stateMu.Lock()
 	cm.connected = true
 	cm.reconnectAttempts = 0
+	cm.stateMu.Unlock()
 
 	cm.client.logger.Info("WebSocket connection established successfully",
 		"function", "EstablishConnection",
@@ -166,12 +169,10 @@ func (cm *ConnectionManager) EstablishConnection(ctx context.Context) error {
 	// NEW: Start separated reader/processor/reconnection goroutines
 	// Following legacy broker_websocket.go breakthrough pattern - CRITICAL FIX
 
-	// CRITICAL: Create NEW context right before starting goroutines
-	// Following legacy startWebSocket pattern (broker_websocket.go:167)
-	// This ensures goroutines use a fresh, non-canceled context
+	// Create a per-connection context while preserving caller lifecycle cancellation.
 	cm.client.logger.Debug("Creating fresh context for goroutines",
 		"function", "EstablishConnection")
-	cm.client.ctx, cm.client.cancel = context.WithCancel(context.Background())
+	cm.client.ctx, cm.client.cancel = context.WithCancel(ctx)
 
 	cm.client.logger.Info("Starting goroutines",
 		"function", "EstablishConnection")
@@ -234,30 +235,43 @@ func (cm *ConnectionManager) HandleConnectionError(err error) {
 
 	cm.handleConnectionClosed()
 
+	cm.stateMu.Lock()
 	if !cm.reconnecting {
 		cm.reconnecting = true
+		cm.stateMu.Unlock()
 		go cm.reconnectWithBackoff()
+	} else {
+		cm.stateMu.Unlock()
 	}
 }
 
 // reconnectWithBackoff implements exponential backoff reconnection following legacy patterns
 func (cm *ConnectionManager) reconnectWithBackoff() {
 	defer func() {
+		cm.stateMu.Lock()
 		cm.reconnecting = false
+		cm.stateMu.Unlock()
 	}()
 
-	for cm.reconnectAttempts < cm.maxReconnectAttempts {
+	for {
+		cm.stateMu.Lock()
+		if cm.reconnectAttempts >= cm.maxReconnectAttempts {
+			cm.stateMu.Unlock()
+			break
+		}
 		cm.reconnectAttempts++
+		attempt := cm.reconnectAttempts
+		cm.stateMu.Unlock()
 
 		// Calculate exponential backoff delay
-		delay := time.Duration(cm.reconnectAttempts) * cm.baseReconnectDelay
+		delay := time.Duration(attempt) * cm.baseReconnectDelay
 		if delay > cm.maxReconnectDelay {
 			delay = cm.maxReconnectDelay
 		}
 
 		cm.client.logger.Info("Reconnection attempt",
 			"function", "reconnectWithBackoff",
-			"attempt", cm.reconnectAttempts,
+			"attempt", attempt,
 			"max_attempts", cm.maxReconnectAttempts,
 			"delay", delay)
 
@@ -276,7 +290,7 @@ func (cm *ConnectionManager) reconnectWithBackoff() {
 		if err := cm.EstablishConnection(cm.client.ctx); err != nil {
 			cm.client.logger.Warn("Reconnection attempt failed",
 				"function", "reconnectWithBackoff",
-				"attempt", cm.reconnectAttempts,
+				"attempt", attempt,
 				"error", err)
 			continue
 		}
@@ -333,7 +347,7 @@ func (cm *ConnectionManager) startSubscriptionMonitoring() {
 		case <-cm.client.ctx.Done():
 			return
 		case <-ticker.C:
-			if !cm.connected {
+			if !cm.IsConnected() {
 				continue
 			}
 
@@ -392,7 +406,9 @@ func (cm *ConnectionManager) startSubscriptionMonitoring() {
 
 // handleConnectionClosed updates connection state following legacy cleanup patterns
 func (cm *ConnectionManager) handleConnectionClosed() {
+	cm.stateMu.Lock()
 	cm.connected = false
+	cm.stateMu.Unlock()
 
 	if cm.client.conn != nil {
 		cm.client.conn.Close()
@@ -406,7 +422,7 @@ func (cm *ConnectionManager) CloseConnection() error {
 	cm.client.logger.Info("Closing WebSocket connection",
 		"function", "CloseConnection")
 
-	if !cm.connected {
+	if !cm.IsConnected() {
 		cm.client.logger.Debug("Already closed (no-op)",
 			"function", "CloseConnection")
 		return nil // Already closed
@@ -419,6 +435,19 @@ func (cm *ConnectionManager) CloseConnection() error {
 			"function", "CloseConnection")
 		cm.client.cancel()
 	}
+
+	// Close the transport before waiting so a reader blocked in ReadMessage exits.
+	if cm.client.conn != nil {
+		if err := cm.client.conn.Close(); err != nil {
+			cm.client.logger.Warn("Error closing TCP connection",
+				"function", "CloseConnection",
+				"error", err)
+		}
+		cm.client.conn = nil
+	}
+	cm.stateMu.Lock()
+	cm.connected = false
+	cm.stateMu.Unlock()
 
 	// CRITICAL: Wait for goroutines to exit with timeout (following legacy pattern)
 	// Legacy broker_websocket.go has 5-second timeout for reader/processor/monitoring
@@ -490,42 +519,9 @@ func (cm *ConnectionManager) CloseConnection() error {
 			"function", "CloseConnection")
 	}
 
-	// Now close the actual WebSocket connection
-	if cm.client.conn != nil {
-		cm.client.logger.Debug("Sending close message",
-			"function", "CloseConnection")
-		// Send close message
-		err := cm.client.conn.WriteMessage(
-			websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
-		)
-		if err != nil {
-			cm.client.logger.Warn("Error sending close message",
-				"function", "CloseConnection",
-				"error", err)
-		} else {
-			cm.client.logger.Debug("Close message sent",
-				"function", "CloseConnection")
-		}
-
-		cm.client.logger.Debug("Closing TCP connection",
-			"function", "CloseConnection")
-		// Close connection
-		err = cm.client.conn.Close()
-		if err != nil {
-			cm.client.logger.Warn("Error closing connection",
-				"function", "CloseConnection",
-				"error", err)
-		} else {
-			cm.client.logger.Debug("TCP connection closed",
-				"function", "CloseConnection")
-		}
-
-		cm.client.conn = nil
-	}
-
-	cm.connected = false
+	cm.stateMu.Lock()
 	cm.reconnectAttempts = 0
+	cm.stateMu.Unlock()
 
 	cm.client.logger.Info("WebSocket connection closed successfully",
 		"function", "CloseConnection")
@@ -534,6 +530,8 @@ func (cm *ConnectionManager) CloseConnection() error {
 
 // IsConnected returns current connection status
 func (cm *ConnectionManager) IsConnected() bool {
+	cm.stateMu.RLock()
+	defer cm.stateMu.RUnlock()
 	return cm.connected
 }
 

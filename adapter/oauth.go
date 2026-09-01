@@ -165,6 +165,15 @@ func (sac *SaxoAuthClient) GetAccessToken() (string, error) {
 	return token.AccessToken, nil
 }
 
+// GetAccessTokenExpiry returns the expiry of the current valid access token.
+func (sac *SaxoAuthClient) GetAccessTokenExpiry() (time.Time, error) {
+	token, err := sac.getValidToken(context.Background())
+	if err != nil {
+		return time.Time{}, err
+	}
+	return token.Expiry, nil
+}
+
 // IsAuthenticated implements AuthClient
 func (sac *SaxoAuthClient) IsAuthenticated() bool {
 	// Use getValidToken which auto-refreshes expired tokens (following legacy pattern)

@@ -14,6 +14,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type accessTokenExpiryProvider interface {
+	GetAccessTokenExpiry() (time.Time, error)
+}
+
 // SaxoWebSocketClient implements real-time data streaming following legacy broker_websocket.go patterns
 type SaxoWebSocketClient struct {
 	// Connection management - following legacy WebSocket patterns
@@ -49,8 +53,10 @@ type SaxoWebSocketClient struct {
 	contextID string
 
 	// Lifecycle management - 22:00 UTC patterns
-	ctx    context.Context
-	cancel context.CancelFunc
+	lifecycleCtx    context.Context
+	lifecycleCancel context.CancelFunc
+	ctx             context.Context
+	cancel          context.CancelFunc
 
 	// NEW: Goroutine lifecycle tracking (CRITICAL for clean shutdown)
 	// Following legacy pattern from broker_websocket.go
@@ -80,7 +86,9 @@ type SaxoWebSocketClient struct {
 
 	// Token refresh timer - following legacy broker_websocket.go pattern
 	// Timer fires ~18 minutes (2 min before token expires) to reauthorize WebSocket
-	tokenRefreshTimer *time.Timer
+	tokenRefreshTimer   *time.Timer
+	tokenRefreshMu      sync.Mutex
+	tokenRefreshStopped bool
 }
 
 // NewSaxoWebSocketClient creates WebSocket client following legacy broker_websocket.go patterns
@@ -128,9 +136,8 @@ func NewSaxoWebSocketClient(authClient saxo.AuthClient, apiBaseURL string, webso
 
 // Connect establishes WebSocket connection following 22:00 UTC lifecycle pattern
 func (ws *SaxoWebSocketClient) Connect(ctx context.Context) error {
-	// Delegate to connection manager - following legacy startWebSocket() pattern
-	// EstablishConnection will start ALL goroutines with unified lifecycle
-	return ws.connectionManager.EstablishConnection(ctx)
+	ws.lifecycleCtx, ws.lifecycleCancel = context.WithCancel(ctx)
+	return ws.connectionManager.EstablishConnection(ws.lifecycleCtx)
 }
 
 // SubscribeToPrices delegates to subscription manager following clean architecture
@@ -684,71 +691,10 @@ func (ws *SaxoWebSocketClient) handleConnectionError(err error) {
 
 // Close terminates WebSocket connection following 21:00 UTC shutdown pattern
 func (ws *SaxoWebSocketClient) Close() error {
-	// Cancel context to stop goroutines (if context exists)
-	if ws.cancel != nil {
-		ws.cancel()
+	if ws.lifecycleCancel != nil {
+		ws.lifecycleCancel()
 	}
-
-	// CRITICAL: Wait for READER goroutine to exit cleanly
-	// Following legacy broker_websocket.go cleanup pattern
-	ws.readerMu.Lock()
-	readerIsRunning := ws.readerRunning
-	readerDoneChannel := ws.readerDone
-	ws.readerMu.Unlock()
-
-	if readerIsRunning && readerDoneChannel != nil {
-		ws.logger.Info("Waiting for reader goroutine to exit",
-			"function", "Close")
-		select {
-		case <-readerDoneChannel:
-			ws.logger.Info("Reader exited cleanly",
-				"function", "Close")
-		case <-time.After(5 * time.Second):
-			ws.logger.Warn("Reader exit timeout (forced shutdown)",
-				"function", "Close")
-		}
-	}
-
-	// CRITICAL: Wait for PROCESSOR goroutine to exit cleanly
-	ws.processorMu.Lock()
-	processorIsRunning := ws.processorRunning
-	processorDoneChannel := ws.processorDone
-	ws.processorMu.Unlock()
-
-	if processorIsRunning && processorDoneChannel != nil {
-		ws.logger.Info("Waiting for processor goroutine to exit",
-			"function", "Close")
-		select {
-		case <-processorDoneChannel:
-			ws.logger.Info("Processor exited cleanly",
-				"function", "Close")
-		case <-time.After(5 * time.Second):
-			ws.logger.Warn("Processor exit timeout (forced shutdown)",
-				"function", "Close")
-		}
-	}
-
-	// CRITICAL: Wait for RECONNECTION HANDLER goroutine to exit cleanly
-	// Following legacy pattern - ensure no goroutine leaks
-	ws.reconnectionHandlerMu.Lock()
-	reconnectionHandlerIsRunning := ws.reconnectionHandlerRunning
-	reconnectionHandlerDoneChannel := ws.reconnectionHandlerDone
-	ws.reconnectionHandlerMu.Unlock()
-
-	if reconnectionHandlerIsRunning && reconnectionHandlerDoneChannel != nil {
-		ws.logger.Info("Waiting for reconnection handler goroutine to exit",
-			"function", "Close")
-		select {
-		case <-reconnectionHandlerDoneChannel:
-			ws.logger.Info("Reconnection handler exited cleanly",
-				"function", "Close")
-		case <-time.After(5 * time.Second):
-			ws.logger.Warn("Reconnection handler exit timeout (forced shutdown)",
-				"function", "Close")
-		}
-	}
-
-	// Delegate to connection manager for actual connection cleanup
+	ws.stopTokenRefreshTimer()
 	return ws.connectionManager.CloseConnection()
 }
 
@@ -785,7 +731,7 @@ func (ws *SaxoWebSocketClient) handleReconnectionRequests() {
 		"function", "handleReconnectionRequests")
 	for {
 		select {
-		case <-ws.ctx.Done():
+		case <-ws.lifecycleCtx.Done():
 			ws.logger.Info("Context canceled, exiting reconnection handler",
 				"function", "handleReconnectionRequests")
 			return
@@ -794,19 +740,34 @@ func (ws *SaxoWebSocketClient) handleReconnectionRequests() {
 				"function", "handleReconnectionRequests",
 				"error", err)
 
-			// Wait 15 seconds before attempting reconnection (gives time for cleanup)
-			// Following legacy pattern - prevents rapid reconnection spam
-			time.Sleep(15 * time.Second)
-
-			// Attempt reconnection
-			reconnectErr := ws.reconnectWebSocket()
-			if reconnectErr != nil {
-				ws.logger.Error("Reconnection failed",
+			for attempt := 1; attempt <= ws.maxReconnectAttempts; attempt++ {
+				delay := time.Duration(attempt) * ws.baseReconnectDelay
+				ws.logger.Info("Waiting before reconnection attempt",
 					"function", "handleReconnectionRequests",
-					"error", reconnectErr)
-			} else {
+					"attempt", attempt,
+					"max_attempts", ws.maxReconnectAttempts,
+					"delay", delay)
+
+				select {
+				case <-ws.lifecycleCtx.Done():
+					ws.logger.Info("Reconnection cancelled",
+						"function", "handleReconnectionRequests")
+					return
+				case <-time.After(delay):
+				}
+
+				if reconnectErr := ws.reconnectWebSocket(); reconnectErr != nil {
+					ws.logger.Warn("Reconnection attempt failed",
+						"function", "handleReconnectionRequests",
+						"attempt", attempt,
+						"error", reconnectErr)
+					continue
+				}
+
 				ws.logger.Info("Reconnection completed successfully",
-					"function", "handleReconnectionRequests")
+					"function", "handleReconnectionRequests",
+					"attempt", attempt)
+				break
 			}
 		}
 	}
@@ -882,23 +843,8 @@ func (ws *SaxoWebSocketClient) reconnectWebSocket() error {
 	// NOTE: Context will be created in EstablishConnection, not here
 	// Following legacy pattern where startWebSocket creates context right before goroutines
 
-	// Wait before reconnecting (exponential backoff)
-	backoffDuration := time.Second * 10
-	ws.logger.Info("Waiting before reconnection attempt",
-		"function", "reconnectWebSocket",
-		"backoff_duration", backoffDuration)
-	time.Sleep(backoffDuration)
-
-	// CRITICAL: Create fresh context AFTER old goroutines have exited
-	// The old ws.ctx was cancelled above to stop goroutines
-	// Now that they've exited, create a new context for the new connection
-	// This prevents DNS/connection failures on slow networks while avoiding race conditions
-	ws.ctx, ws.cancel = context.WithCancel(context.Background())
-	ws.logger.Debug("Created fresh context for reconnection after goroutines exited",
-		"function", "reconnectWebSocket")
-
 	// Attempt to establish new connection
-	if err := ws.connectionManager.EstablishConnection(ws.ctx); err != nil {
+	if err := ws.connectionManager.EstablishConnection(ws.lifecycleCtx); err != nil {
 		ws.logger.Error("Failed to establish connection",
 			"function", "reconnectWebSocket",
 			"error", err)
@@ -967,13 +913,24 @@ func (c *SaxoWebSocketClient) startTokenRefreshTimer() time.Duration {
 		return -1 * time.Second
 	}
 
-	// Get token expiry - we need to call a method that gives us expiry time
-	// For now, assume standard 20-minute expiry from connection time
-	// TODO: Enhance AuthClient interface to expose token expiry time
 	expiryTime := 20 * time.Minute
-	c.logger.Debug("Token expiry estimated",
+	if provider, ok := c.authClient.(accessTokenExpiryProvider); ok {
+		expiresAt, expiryErr := provider.GetAccessTokenExpiry()
+		if expiryErr != nil {
+			c.logger.Warn("Failed to get access token expiry; using default lifetime",
+				"function", "startTokenRefreshTimer",
+				"error", expiryErr)
+		} else {
+			expiryTime = time.Until(expiresAt)
+		}
+	}
+	c.logger.Debug("Access token lifetime resolved",
 		"function", "startTokenRefreshTimer",
-		"expiry_time", expiryTime)
+		"expires_in", expiryTime)
+
+	c.tokenRefreshMu.Lock()
+	defer c.tokenRefreshMu.Unlock()
+	c.tokenRefreshStopped = false
 
 	// Stop any existing timer before creating a new one
 	if c.tokenRefreshTimer != nil {
@@ -991,8 +948,8 @@ func (c *SaxoWebSocketClient) startTokenRefreshTimer() time.Duration {
 	// Calculate when to fire: 2 minutes before token expires
 	// Following legacy pattern: fireIn = expiryTime - 2*time.Minute (~18 minutes)
 	fireIn := expiryTime - 2*time.Minute
-	if fireIn < 0 {
-		fireIn = 30 * time.Second // Token expires very soon, try again in 30s
+	if fireIn <= 0 {
+		fireIn = time.Second
 		c.logger.Warn("Token expires in less than 2 minutes, scheduling immediate retry",
 			"function", "startTokenRefreshTimer")
 	}
@@ -1068,19 +1025,33 @@ func (c *SaxoWebSocketClient) refreshTokenAndReschedule() {
 // scheduleNextRefresh calculates when the next refresh should occur and schedules it
 // Following legacy broker_websocket.go pattern (lines 310-344)
 func (c *SaxoWebSocketClient) scheduleNextRefresh() {
-	// Assume standard 20-minute token expiry
-	// In production, token was just refreshed, so we have fresh 20 minutes
 	expiryTime := 20 * time.Minute
+	if provider, ok := c.authClient.(accessTokenExpiryProvider); ok {
+		expiresAt, err := provider.GetAccessTokenExpiry()
+		if err != nil {
+			c.logger.Warn("Failed to get refreshed access token expiry; using default lifetime",
+				"function", "scheduleNextRefresh",
+				"error", err)
+		} else {
+			expiryTime = time.Until(expiresAt)
+		}
+	}
 
 	// Calculate next fire time: 2 minutes before expiry
 	// Following legacy pattern: nextFire = expiryTime - 2*time.Minute
 	nextFire := expiryTime - 2*time.Minute
 
 	// If token expires in less than 2 minutes, try again soon
-	if nextFire < 0 {
-		nextFire = 30 * time.Second
-		c.logger.Warn("Token expires soon, will retry in 30s",
+	if nextFire <= 0 {
+		nextFire = time.Second
+		c.logger.Warn("Token expires soon, will retry immediately",
 			"function", "scheduleNextRefresh")
+	}
+
+	c.tokenRefreshMu.Lock()
+	defer c.tokenRefreshMu.Unlock()
+	if c.tokenRefreshStopped {
+		return
 	}
 
 	// Reset the timer
@@ -1098,5 +1069,15 @@ func (c *SaxoWebSocketClient) scheduleNextRefresh() {
 		c.logger.Debug("New timer created",
 			"function", "scheduleNextRefresh",
 			"next_fire", nextFire)
+	}
+}
+
+func (c *SaxoWebSocketClient) stopTokenRefreshTimer() {
+	c.tokenRefreshMu.Lock()
+	defer c.tokenRefreshMu.Unlock()
+	c.tokenRefreshStopped = true
+	if c.tokenRefreshTimer != nil {
+		c.tokenRefreshTimer.Stop()
+		c.tokenRefreshTimer = nil
 	}
 }
